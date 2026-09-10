@@ -1,0 +1,1 @@
+const e=["oauth","api_key","free_tier"],r={oauth:"OAuth Provider",api_key:"API Key Provider",free_tier:"Free Tier Provider"},t={oauth:"Signed in through a provider account rather than a key.",api_key:"Authenticated with a platform key you supply.",free_tier:"Free or rate-limited public endpoints."};export{r as C,t as a,e as b};

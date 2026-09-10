@@ -1,0 +1,1 @@
+import{j as a,d as n}from"./index-BpHK6kQT.js";function t({className:e,...s}){return a.jsx("div",{"data-slot":"skeleton",className:n("animate-pulse rounded-md bg-secondary/80 dark:bg-secondary/50",e),...s})}export{t as S};
