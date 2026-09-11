@@ -26,21 +26,26 @@ func NewTokenSaverConfig(rtk, caveman, ponytail bool) *TokenSaverConfig {
 
 // SetupV1ProxyRoutes mounts OpenAI/Anthropic AI proxy routes under a subrouter (e.g. /v1)
 func SetupV1ProxyRoutes(v1 chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
-	v1.Use(middleware.RequireApiKey(repo))
-
 	chatH := chat.NewChatHandler(repo, ts)
 	mediaH := media.NewMediaHandler(repo, ts, chatH)
 
+	// Public discovery routes (allowed without API key for dashboard & client model lists)
 	v1.Get("/models", chatH.HandleModels)
 	v1.Get("/models/info", chatH.HandleModelsInfo)
 	v1.Get("/models/{kind}", chatH.HandleModelsByKind)
-	v1.Post("/chat/completions", chatH.HandleChatCompletions)
-	v1.Post("/messages", chatH.HandleMessages)
-	v1.Post("/messages/count_tokens", chatH.HandleCountTokens)
-	v1.Post("/embeddings", mediaH.HandleEmbeddings)
-	v1.Post("/images/generations", mediaH.HandleImages)
-	v1.Post("/audio/speech", mediaH.HandleAudioSpeech)
-	v1.Post("/audio/transcriptions", mediaH.HandleAudioTranscriptions)
+
+	// Protected inference routes (require API key)
+	v1.Group(func(r chi.Router) {
+		r.Use(middleware.RequireApiKey(repo))
+
+		r.Post("/chat/completions", chatH.HandleChatCompletions)
+		r.Post("/messages", chatH.HandleMessages)
+		r.Post("/messages/count_tokens", chatH.HandleCountTokens)
+		r.Post("/embeddings", mediaH.HandleEmbeddings)
+		r.Post("/images/generations", mediaH.HandleImages)
+		r.Post("/audio/speech", mediaH.HandleAudioSpeech)
+		r.Post("/audio/transcriptions", mediaH.HandleAudioTranscriptions)
+	})
 }
 
 // SetupRoutes mounts all domain handlers on the provided router.
