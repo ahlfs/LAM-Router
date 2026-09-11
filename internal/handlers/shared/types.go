@@ -40,6 +40,7 @@ type UsageLogInfo struct {
 	Model        string
 	ConnectionID string
 	APIKey       string
+	ClientAPIKey string
 	Endpoint     string
 }
 

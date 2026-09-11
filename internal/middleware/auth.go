@@ -46,6 +46,20 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 				return
 			}
 
+			// Check token quota limit
+			if apiKeyObj.QuotaLimit > 0 && apiKeyObj.UsageTokens >= apiKeyObj.QuotaLimit {
+				log.Warn("auth", "token quota limit exceeded", "key", apiKeyObj.Key, "usage", apiKeyObj.UsageTokens, "limit", apiKeyObj.QuotaLimit)
+				handlerutil.WriteJSONError(w, http.StatusTooManyRequests, "Token quota limit exceeded. Please top up or increase the quota limit for this API key.")
+				return
+			}
+
+			// Check credit cost limit
+			if apiKeyObj.CreditLimit > 0 && apiKeyObj.UsageCost >= apiKeyObj.CreditLimit {
+				log.Warn("auth", "credit limit exceeded", "key", apiKeyObj.Key, "cost", apiKeyObj.UsageCost, "limit", apiKeyObj.CreditLimit)
+				handlerutil.WriteJSONError(w, http.StatusTooManyRequests, "Credit limit exceeded. Please add credit to continue using this API key.")
+				return
+			}
+
 			// Inject API Key info into the request context for downstream handlers/logging
 			ctx := context.WithValue(r.Context(), ApiKeyContextKey, apiKeyObj)
 			next.ServeHTTP(w, r.WithContext(ctx))

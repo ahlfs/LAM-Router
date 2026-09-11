@@ -72,6 +72,19 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 			createdAt TEXT NOT NULL,
 			updatedAt TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			key TEXT UNIQUE NOT NULL,
+			name TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			rate_limit INTEGER DEFAULT 0,
+			quota_limit INTEGER DEFAULT 0,
+			usage_tokens INTEGER DEFAULT 0,
+			credit_limit REAL DEFAULT 0,
+			usage_cost REAL DEFAULT 0,
+			allowed_models TEXT,
+			created_at INTEGER NOT NULL
+		);`,
 	}
 
 	for _, query := range schema {
@@ -82,6 +95,39 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	}
 
 	return db, cleanup
+}
+
+func TestIncrementApiKeyUsage(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := db.Exec(`INSERT INTO api_keys (id, key, name, enabled, quota_limit, usage_tokens, credit_limit, usage_cost, created_at) VALUES
+		('k-1', 'lam-live-test', 'Test Key', 1, 10000, 100, 5.0, 0.05, 1720000000000);`)
+	if err != nil {
+		t.Fatalf("failed to seed api_keys: %v", err)
+	}
+
+	repo := NewRepo(db)
+
+	// Increment usage by 250 tokens and 0.02 cost
+	if err := repo.IncrementApiKeyUsage("lam-live-test", 250, 0.02); err != nil {
+		t.Fatalf("IncrementApiKeyUsage failed: %v", err)
+	}
+
+	// Verify updated values
+	apiKey, err := repo.GetApiKeyByKey("lam-live-test")
+	if err != nil {
+		t.Fatalf("GetApiKeyByKey failed: %v", err)
+	}
+	if apiKey == nil {
+		t.Fatal("expected apiKey to be found")
+	}
+	if apiKey.UsageTokens != 350 {
+		t.Errorf("expected UsageTokens=350, got %d", apiKey.UsageTokens)
+	}
+	if apiKey.UsageCost < 0.069 || apiKey.UsageCost > 0.071 {
+		t.Errorf("expected UsageCost ~0.07, got %f", apiKey.UsageCost)
+	}
 }
 
 func TestValidateApiKey(t *testing.T) {

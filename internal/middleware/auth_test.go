@@ -37,6 +37,19 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 			isActive INTEGER DEFAULT 1,
 			createdAt TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS api_keys (
+			id TEXT PRIMARY KEY,
+			key TEXT UNIQUE NOT NULL,
+			name TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			rate_limit INTEGER DEFAULT 0,
+			quota_limit INTEGER DEFAULT 0,
+			usage_tokens INTEGER DEFAULT 0,
+			credit_limit REAL DEFAULT 0,
+			usage_cost REAL DEFAULT 0,
+			allowed_models TEXT,
+			created_at INTEGER NOT NULL
+		);`,
 	}
 
 	for _, query := range schema {
@@ -53,6 +66,16 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 	if err != nil {
 		cleanup()
 		t.Fatalf("failed to seed apiKeys: %v", err)
+	}
+
+	_, err = database.Exec(`INSERT INTO api_keys (id, key, name, enabled, quota_limit, usage_tokens, credit_limit, usage_cost, created_at) VALUES
+		('k-unlimited', 'unlimited-key', 'Unlimited', 1, 0, 500, 0, 0, 1720000000000),
+		('k-over-quota', 'over-quota-key', 'Over Quota', 1, 1000, 1000, 0, 0, 1720000000000),
+		('k-over-credit', 'over-credit-key', 'Over Credit', 1, 0, 0, 5.0, 5.5, 1720000000000),
+		('k-valid-quota', 'valid-quota-key', 'Valid Quota', 1, 5000, 2000, 10.0, 1.0, 1720000000000);`)
+	if err != nil {
+		cleanup()
+		t.Fatalf("failed to seed api_keys: %v", err)
 	}
 
 	return database, cleanup
@@ -120,6 +143,42 @@ func TestRequireApiKeyMiddleware(t *testing.T) {
 				return req
 			},
 			expectedStatus: http.StatusUnauthorized,
+		},
+		{
+			name: "Key with unlimited quota passes",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/v1/chat/completions", nil)
+				req.Header.Set("Authorization", "Bearer unlimited-key")
+				return req
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Key within quota limit passes",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/v1/chat/completions", nil)
+				req.Header.Set("Authorization", "Bearer valid-quota-key")
+				return req
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Key exceeding token quota limit is rejected with 429",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/v1/chat/completions", nil)
+				req.Header.Set("Authorization", "Bearer over-quota-key")
+				return req
+			},
+			expectedStatus: http.StatusTooManyRequests,
+		},
+		{
+			name: "Key exceeding credit limit is rejected with 429",
+			setupRequest: func() *http.Request {
+				req := httptest.NewRequest("GET", "http://example.com/v1/chat/completions", nil)
+				req.Header.Set("Authorization", "Bearer over-credit-key")
+				return req
+			},
+			expectedStatus: http.StatusTooManyRequests,
 		},
 	}
 

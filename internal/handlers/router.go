@@ -26,6 +26,8 @@ func NewTokenSaverConfig(rtk, caveman, ponytail bool) *TokenSaverConfig {
 
 // SetupV1ProxyRoutes mounts OpenAI/Anthropic AI proxy routes under a subrouter (e.g. /v1)
 func SetupV1ProxyRoutes(v1 chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
+	v1.Use(middleware.RequireApiKey(repo))
+
 	chatH := chat.NewChatHandler(repo, ts)
 	mediaH := media.NewMediaHandler(repo, ts, chatH)
 

@@ -48,12 +48,17 @@ type ProxyPool struct {
 
 // APIKey represents a client-facing authorization key.
 type APIKey struct {
-	ID        string  `json:"id"`
-	Key       string  `json:"key"`
-	Name      *string `json:"name,omitempty"`
-	MachineID *string `json:"machineId,omitempty"`
-	IsActive  int     `json:"isActive"` // 0 or 1
-	CreatedAt string  `json:"createdAt"`
+	ID          string  `json:"id"`
+	Key         string  `json:"key"`
+	Name        *string `json:"name,omitempty"`
+	MachineID   *string `json:"machineId,omitempty"`
+	IsActive    int     `json:"isActive"` // 0 or 1
+	CreatedAt   string  `json:"createdAt"`
+	QuotaLimit  int64   `json:"quotaLimit"`
+	UsageTokens int64   `json:"usageTokens"`
+	CreditLimit float64 `json:"creditLimit"`
+	UsageCost   float64 `json:"usageCost"`
+	RateLimit   int     `json:"rateLimit"`
 }
 
 // Combo represents a multi-model routing combinated alias.

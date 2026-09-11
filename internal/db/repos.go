@@ -37,10 +37,47 @@ func (r *Repo) ValidateApiKey(key string) (bool, error) {
 	return active == 1, nil
 }
 
-// GetApiKeyByKey retrieves detailed APIKey information by key.
+// GetApiKeyByKey retrieves detailed APIKey information by key, checking api_keys table first then apiKeys table.
 func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	var apiKey models.APIKey
+
+	// 1. Try querying the primary api_keys table (used by LAM-Router Dashboard)
+	var enabled int
+	var quotaLimit, usageTokens sql.NullInt64
+	var creditLimit, usageCost sql.NullFloat64
+	var rateLimit sql.NullInt64
+	var createdAt int64
+	var name string
+
 	err := r.db.QueryRow(
+		"SELECT id, key, name, enabled, rate_limit, quota_limit, usage_tokens, credit_limit, usage_cost, created_at FROM api_keys WHERE key = ? LIMIT 1",
+		key,
+	).Scan(&apiKey.ID, &apiKey.Key, &name, &enabled, &rateLimit, &quotaLimit, &usageTokens, &creditLimit, &usageCost, &createdAt)
+
+	if err == nil {
+		apiKey.Name = &name
+		apiKey.IsActive = enabled
+		if quotaLimit.Valid {
+			apiKey.QuotaLimit = quotaLimit.Int64
+		}
+		if usageTokens.Valid {
+			apiKey.UsageTokens = usageTokens.Int64
+		}
+		if creditLimit.Valid {
+			apiKey.CreditLimit = creditLimit.Float64
+		}
+		if usageCost.Valid {
+			apiKey.UsageCost = usageCost.Float64
+		}
+		if rateLimit.Valid {
+			apiKey.RateLimit = int(rateLimit.Int64)
+		}
+		apiKey.CreatedAt = time.UnixMilli(createdAt).UTC().Format(time.RFC3339)
+		return &apiKey, nil
+	}
+
+	// 2. Fallback to legacy apiKeys table
+	err = r.db.QueryRow(
 		"SELECT id, key, name, machineId, isActive, createdAt FROM apiKeys WHERE key = ? LIMIT 1",
 		key,
 	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &apiKey.MachineID, &apiKey.IsActive, &apiKey.CreatedAt)
@@ -52,6 +89,18 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 		return nil, err
 	}
 	return &apiKey, nil
+}
+
+// IncrementApiKeyUsage increments token usage and cost for an API key in the api_keys table.
+func (r *Repo) IncrementApiKeyUsage(keyOrID string, tokens int, cost float64) error {
+	if keyOrID == "" {
+		return nil
+	}
+	_, err := r.db.Exec(
+		"UPDATE api_keys SET usage_tokens = usage_tokens + ?, usage_cost = usage_cost + ? WHERE key = ? OR id = ?",
+		tokens, cost, keyOrID, keyOrID,
+	)
+	return err
 }
 
 // GetProviderConnectionByID retrieves a single provider connection by primary key.

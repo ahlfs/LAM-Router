@@ -70,13 +70,24 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 	if rawDB != nil {
 		nowMillis := time.Now().UnixMilli()
 		reqLogID := fmt.Sprintf("req_%d_%s", nowMillis, info.Provider)
+		apiKeyID := info.ClientAPIKey
+		if apiKeyID == "" {
+			apiKeyID = maskAPIKey(info.APIKey)
+		}
 		_, _ = rawDB.Exec(`
 			INSERT OR REPLACE INTO request_logs (
 				id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
 				status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, reasoning_tokens, estimated_cost
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, reqLogID, maskAPIKey(info.APIKey), info.Provider, info.Model, usage.PromptTokens, usage.CompletionTokens, totalTokens,
+		`, reqLogID, apiKeyID, info.Provider, info.Model, usage.PromptTokens, usage.CompletionTokens, totalTokens,
 			200, latencyMs, nowMillis, cachedTokens, cacheCreationTokens, usage.ReasoningTokens(), cost)
+	}
+
+	// Update token usage and cost on the client API key
+	if info.ClientAPIKey != "" {
+		if err := h.Repo.IncrementApiKeyUsage(info.ClientAPIKey, totalTokens, cost); err != nil {
+			log.Error("usage", "increment api key usage failed", "key", info.ClientAPIKey, "error", err)
+		}
 	}
 
 	now := time.Now().UTC()

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"9router/proxy/internal/cache"
+	"9router/proxy/internal/middleware"
+	"9router/proxy/internal/models"
 	"9router/proxy/internal/providers"
 	"9router/proxy/internal/proxy/executor"
 	"9router/proxy/internal/tracing"
@@ -238,11 +240,20 @@ func (h *ChatHandler) tryForwardWithConnection(
 		if usage == nil {
 			usage = &translator.OpenAIUsage{}
 		}
+		clientKeyStr := ""
+		if keyObj := middleware.GetAuthenticatedApiKey(&http.Request{}); keyObj != nil {
+			clientKeyStr = keyObj.Key
+		}
+		if clientKeyObj, ok := ctx.Value(middleware.ApiKeyContextKey).(*models.APIKey); ok && clientKeyObj != nil {
+			clientKeyStr = clientKeyObj.Key
+		}
+
 		logInfo := &UsageLogInfo{
 			Provider:     provider,
 			Model:        model,
 			ConnectionID: connectionID,
 			APIKey:       apiKey,
+			ClientAPIKey: clientKeyStr,
 			Endpoint:     endpoint,
 		}
 		h.logUsage(logInfo, usage, latencyMs, body, metrics)
