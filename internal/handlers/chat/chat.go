@@ -330,10 +330,32 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	// Dynamic & Connected Provider Models from DB
 	rawDB := h.Repo.RawDB()
 	if rawDB != nil {
-		// 1. Models from provider_models table (dynamically scanned and active)
-		syncedProviders := make(map[string]bool)
+		// 1. Get list of active/connected providers (from both providers & providerConnections tables)
+		connectedProviders := make(map[string]bool)
+		
+		prows, err := rawDB.Query(`SELECT DISTINCT LOWER(provider_id) FROM providers WHERE enabled = 1`)
+		if err == nil {
+			for prows.Next() {
+				var pid string
+				if err := prows.Scan(&pid); err == nil && pid != "" {
+					connectedProviders[pid] = true
+				}
+			}
+			prows.Close()
+		}
 
-		// 1. Models from provider_models table (dynamically scanned and active)
+		crows, err := rawDB.Query(`SELECT DISTINCT LOWER(provider) FROM providerConnections WHERE isActive = 1 OR isActive IS NULL`)
+		if err == nil {
+			for crows.Next() {
+				var pid string
+				if err := crows.Scan(&pid); err == nil && pid != "" {
+					connectedProviders[pid] = true
+				}
+			}
+			crows.Close()
+		}
+
+		// 2. Models from provider_models table (ONLY for connected providers)
 		rows, err := rawDB.Query(`SELECT model_id, provider_id, context_length FROM provider_models WHERE is_active = 1 OR is_active IS NULL ORDER BY model_id ASC`)
 		if err == nil {
 			defer rows.Close()
@@ -341,62 +363,39 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				var mid, pid string
 				var ctxLen int
 				if err := rows.Scan(&mid, &pid, &ctxLen); err == nil {
-					syncedProviders[strings.ToLower(pid)] = true
-					addModel(mid, pid, ctxLen, 0)
-				}
-			}
-		}
-
-		// 2. Custom models
-		crows, err := rawDB.Query(`SELECT model_id, provider_id FROM custom_models ORDER BY model_id ASC`)
-		if err == nil {
-			defer crows.Close()
-			for crows.Next() {
-				var mid, pid string
-				if err := crows.Scan(&mid, &pid); err == nil {
-					addModel(mid, pid, 0, 0)
-				}
-			}
-		}
-
-		// 3. Connected providers
-		// If a provider has NOT been dynamically scanned, use its preset catalog models.
-		// If it HAS been dynamically scanned, the preset models are superseded/hidden.
-		prows, err := rawDB.Query(`SELECT DISTINCT provider_id FROM providers WHERE enabled = 1`)
-		if err == nil {
-			defer prows.Close()
-			for prows.Next() {
-				var pid string
-				if err := prows.Scan(&pid); err == nil {
-					pid = strings.ToLower(pid)
-					if !syncedProviders[pid] {
-						for _, seed := range srouterapi.KnownCatalogSeeds {
-							if strings.ToLower(seed.ID) == pid {
-								for _, m := range seed.Models {
-									if mid, ok := m["id"].(string); ok {
-										var isActive int = 1
-										_ = rawDB.QueryRow(`SELECT COALESCE(is_active, 1) FROM provider_models WHERE provider_id = ? AND model_id = ?`, pid, mid).Scan(&isActive)
-										if isActive == 1 {
-											addModel(mid, pid, 0, 0)
-										}
-									}
-								}
-							}
-						}
+					lowPid := strings.ToLower(pid)
+					if connectedProviders[lowPid] {
+						addModel(mid, pid, ctxLen, 0)
 					}
 				}
 			}
 		}
 
-		// 4. Free tier providers (available out of the box ONLY if not superseded by sync)
+		// 3. Custom models (ONLY for connected providers)
+		custRows, err := rawDB.Query(`SELECT model_id, provider_id FROM custom_models ORDER BY model_id ASC`)
+		if err == nil {
+			defer custRows.Close()
+			for custRows.Next() {
+				var mid, pid string
+				if err := custRows.Scan(&mid, &pid); err == nil {
+					lowPid := strings.ToLower(pid)
+					if connectedProviders[lowPid] {
+						addModel(mid, pid, 0, 0)
+					}
+				}
+			}
+		}
+
+		// 4. Preset Catalog seeds (ONLY for connected providers without dynamic models)
 		for _, seed := range srouterapi.KnownCatalogSeeds {
 			sID := strings.ToLower(seed.ID)
-			if seed.Category == "free_tier" && !syncedProviders[sID] {
-				for _, m := range seed.Models {
-					if mid, ok := m["id"].(string); ok {
-						var isActive int = 1
-						_ = rawDB.QueryRow(`SELECT COALESCE(is_active, 1) FROM provider_models WHERE provider_id = ? AND model_id = ?`, sID, mid).Scan(&isActive)
-						if isActive == 1 {
+			if connectedProviders[sID] {
+				// Only add seed models if this connected provider has no rows in provider_models
+				var count int
+				_ = rawDB.QueryRow(`SELECT COUNT(*) FROM provider_models WHERE LOWER(provider_id) = ?`, sID).Scan(&count)
+				if count == 0 {
+					for _, m := range seed.Models {
+						if mid, ok := m["id"].(string); ok {
 							addModel(mid, sID, 0, 0)
 						}
 					}
