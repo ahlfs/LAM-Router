@@ -15,6 +15,13 @@ LDFLAGS := -s -w -X '9router/proxy/internal/updater.CurrentVersion=$(VERSION)'
 build:
 	go build -ldflags="$(LDFLAGS)" -o bin/$(BINARY_NAME) ./cmd/9router-go/
 
+## build-ui — build web frontend and sync assets to internal/webdist/dist
+build-ui:
+	cd ../LAM-Router-staging/srouter/apps/web && pnpm run build
+	rm -rf internal/webdist/dist/*
+	cp -r ../LAM-Router-staging/srouter/apps/web/dist/* internal/webdist/dist/
+	cp -r ../LAM-Router-staging/srouter/apps/web/dist/* web/dist/ 2>/dev/null || true
+
 ## install — compile and install globally into $GOPATH/bin or /usr/local/bin
 install: build
 	@mkdir -p $(HOME)/.local/bin

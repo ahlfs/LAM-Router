@@ -1,1 +1,0 @@
-import{r as t}from"./index-DukkhVQ7.js";function s(){const[u,r]=t.useState(null),e=t.useRef(null),c=t.useCallback(async o=>{await navigator.clipboard.writeText(o),r(o),e.current&&clearTimeout(e.current),e.current=setTimeout(()=>r(null),1500)},[]);return{copied:u,copy:c}}export{s as u};
