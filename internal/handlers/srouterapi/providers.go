@@ -1370,7 +1370,11 @@ func (h *SRouterHandler) HandleProviderVerify(w http.ResponseWriter, r *http.Req
 	client := &http.Client{Timeout: 7 * time.Second}
 	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, modelsEndpoint, nil)
 	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid URL endpoint: %v", err))
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success": false,
+			"valid":   false,
+			"message": fmt.Sprintf("Invalid URL endpoint: %v", err),
+		})
 		return
 	}
 
@@ -1386,7 +1390,7 @@ func (h *SRouterHandler) HandleProviderVerify(w http.ResponseWriter, r *http.Req
 		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 			"success": false,
 			"valid":   false,
-			"message": fmt.Sprintf("Connection failed: %v", err),
+			"message": fmt.Sprintf("Server offline or connection refused (%v)", err),
 		})
 		return
 	}
