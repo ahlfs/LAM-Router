@@ -224,27 +224,35 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 }
 
 // AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
+// Matches official 9router upstream mapping precisely:
+// 1. Exact 1:1 passthrough for 3.7 variants (gemini-3.7-flash-high, etc.)
+// 2. Strict mapping for Claude, GPT OSS, and 3.8 variants without falling back to pro-agent.
 var AntigravityModelSynonyms = map[string]string{
-	// Gemini 3.8 Family (Routes to High-Speed Gemini 3 Flash Agent)
-	"gemini-3.8-flash":           "gemini-3-flash-agent",
-	"gemini-3.8-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.8-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.8-flash-low":       "gemini-3.5-flash-low",
-	"gemini-3.8-flash-thinking":  "gemini-3-flash-agent",
-	"gemini-3.8-flash-cyber":     "gemini-3-flash-agent",
-	"gemini-flash-3.8":           "gemini-3-flash-agent",
+	// Gemini 3.8 Family
+	"gemini-3.8-flash":           "gemini-3.8-flash",
+	"gemini-3.8-flash-high":      "gemini-3.8-flash",
+	"gemini-3.8-flash-medium":    "gemini-3.8-flash",
+	"gemini-3.8-flash-low":       "gemini-3.8-flash",
+	"gemini-3.8-flash-thinking":  "gemini-3.8-flash",
+	"gemini-3.8-flash-cyber":     "gemini-3.8-flash-cyber",
+	"gemini-flash-3.8":           "gemini-3.8-flash",
 
-	// Gemini 3.7 Family
-	"gemini-3.7-flash":           "gemini-3-flash-agent",
-	"gemini-3.7-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.7-flash-agent":     "gemini-3-flash-agent",
-	"gemini-3.7-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.7-flash-low":       "gemini-3.5-flash-low",
+	// Gemini 3.7 Family (1:1 with official 9router / Google CloudCode)
+	"gemini-3.7-flash":           "gemini-3.7-flash-high",
+	"gemini-3.7-flash-high":      "gemini-3.7-flash-high",
+	"gemini-3.7-flash-agent":     "gemini-3.7-flash-high",
+	"gemini-3.7-flash-medium":    "gemini-3.7-flash-medium",
+	"gemini-3.7-flash-low":       "gemini-3.7-flash-low",
 	"gemini-3.7-flash-extra-low": "gemini-3.5-flash-extra-low",
-	"gemini-3.7-flash-thinking":  "gemini-3-flash-agent",
-	"gemini-flash-3.7":           "gemini-3-flash-agent",
+	"gemini-3.7-flash-thinking":  "gemini-3.7-flash-high",
+	"gemini-flash-3.7":           "gemini-3.7-flash-high",
 
-	// Gemini Pro / Legacy
+	// Gemini 3.6 Family
+	"gemini-3.6-flash-high":      "gemini-3.6-flash-high",
+	"gemini-3.6-flash-medium":    "gemini-3.6-flash-medium",
+	"gemini-3.6-flash-low":       "gemini-3.6-flash-low",
+
+	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
 	"gemini-2.5-flash":           "gemini-3-flash-agent",
 	"gemini-3.1-pro-high":        "gemini-pro-agent",
@@ -252,7 +260,7 @@ var AntigravityModelSynonyms = map[string]string{
 	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
 	"gemini-3-pro-high":          "gemini-pro-agent",
 	"gemini-3-pro-low":           "gemini-3.1-pro-low",
-	"gemini-default":             "gemini-3-flash-agent",
+	"gemini-default":             "gemini-3.5-flash-low",
 
 	// Claude via Antigravity CloudCode
 	"claude-3-7-sonnet":          "claude-sonnet-4-6",
