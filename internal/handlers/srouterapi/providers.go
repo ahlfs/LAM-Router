@@ -1484,12 +1484,42 @@ func (h *SRouterHandler) ScanAndSyncProviderModels(providerID string) ([]map[str
 			{"id": "framer/fable-5", "object": "model", "owned_by": "framer"},
 			{"id": "framer/google/gemini-3-flash-preview", "object": "model", "owned_by": "framer"},
 		}
-		for _, m := range framerModels {
-			mID, _ := m["id"].(string)
-			_, _ = h.db.Exec(`INSERT OR REPLACE INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
-				VALUES (?, ?, 128000, 0, ?)`,
-				"framer", mID, time.Now().UnixMilli())
+
+		now := time.Now().UnixMilli()
+		tx, err := h.db.Begin()
+		if err == nil {
+			validModelIDs := make(map[string]bool)
+			for _, m := range framerModels {
+				mID, _ := m["id"].(string)
+				validModelIDs[mID] = true
+				_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
+					VALUES ('framer', ?, 128000, 0, ?)
+					ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
+					mID, now)
+			}
+
+			// Prune stale models for framer
+			rows, qErr := tx.Query(`SELECT model_id FROM provider_models WHERE provider_id = 'framer' AND is_custom = 0`)
+			if qErr == nil {
+				var toDelete []string
+				for rows.Next() {
+					var existingID string
+					if err := rows.Scan(&existingID); err == nil {
+						if !validModelIDs[existingID] {
+							toDelete = append(toDelete, existingID)
+						}
+					}
+				}
+				rows.Close()
+
+				for _, delID := range toDelete {
+					_, _ = tx.Exec(`DELETE FROM provider_models WHERE provider_id = 'framer' AND model_id = ?`, delID)
+				}
+			}
+
+			_ = tx.Commit()
 		}
+
 		return framerModels, nil
 	}
 
