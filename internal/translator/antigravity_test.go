@@ -249,13 +249,11 @@ func TestStripCompetitivePrompts(t *testing.T) {
 
 func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 	validBackendModels := map[string]bool{
-		"gemini-3-flash-agent":       true,
 		"gemini-pro-agent":           true,
 		"gemini-3.1-pro-low":         true,
 		"claude-sonnet-4-6":          true,
 		"claude-opus-4-6-thinking":   true,
 		"gpt-oss-120b-medium":        true,
-		"gemini-3-flash":             true,
 		"gemini-3.1-flash-image":     true,
 	}
 

@@ -17,6 +17,14 @@ type AntigravityRequest struct {
 	RequestType string          `json:"requestType"`
 	RequestID   string          `json:"requestId"`
 	Request     json.RawMessage `json:"request"`
+	Metadata    *AntigravityMetadata `json:"metadata,omitempty"`
+}
+
+// AntigravityMetadata contains IDE identification for CloudCode.
+type AntigravityMetadata struct {
+	IdeName    string `json:"ideName"`
+	IdeType    string `json:"ideType"`
+	IdeVersion string `json:"ideVersion"`
 }
 
 // AntigravityNativeToolNames are tool names preserved without suffix.
@@ -224,10 +232,12 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 }
 
 // AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
-// Google Deprecation Notice: Gemini 3.5 Flash and 3-flash-agent legacy aliases have been shut down upstream.
-// All requests are routed to active flagship models: gemini-pro-agent (Gemini Pro/Flash 3.7+ Reasoning) or claude-sonnet-4-6.
+// Confirmed: Only gemini-pro-agent (+ claude/gpt) returns 200 from daily-cloudcode-pa.googleapis.com.
+// All flash model IDs (3.7/3.8/3-flash-agent) return 404 from Google CloudCode on this account.
+// 9router works because its MITM intercepts antigravity traffic and re-routes it to
+// its own /v1/chat/completions API (port 3035), which may use different providers internally.
 var AntigravityModelSynonyms = map[string]string{
-	// Gemini 3.8 Family
+	// Gemini Flash Family — all route to gemini-pro-agent (only active model on CloudCode)
 	"gemini-3.8-flash":           "gemini-pro-agent",
 	"gemini-3.8-flash-high":      "gemini-pro-agent",
 	"gemini-3.8-flash-medium":    "gemini-pro-agent",
@@ -236,7 +246,6 @@ var AntigravityModelSynonyms = map[string]string{
 	"gemini-3.8-flash-cyber":     "gemini-pro-agent",
 	"gemini-flash-3.8":           "gemini-pro-agent",
 
-	// Gemini 3.7 Family
 	"gemini-3.7-flash":           "gemini-pro-agent",
 	"gemini-3.7-flash-high":      "gemini-pro-agent",
 	"gemini-3.7-flash-agent":     "gemini-pro-agent",
@@ -246,10 +255,12 @@ var AntigravityModelSynonyms = map[string]string{
 	"gemini-3.7-flash-thinking":  "gemini-pro-agent",
 	"gemini-flash-3.7":           "gemini-pro-agent",
 
-	// Gemini 3.6 Family
 	"gemini-3.6-flash-high":      "gemini-pro-agent",
 	"gemini-3.6-flash-medium":    "gemini-pro-agent",
 	"gemini-3.6-flash-low":       "gemini-pro-agent",
+
+	"gemini-3-flash-agent":       "gemini-pro-agent",
+	"gemini-default":             "gemini-pro-agent",
 
 	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
@@ -259,8 +270,6 @@ var AntigravityModelSynonyms = map[string]string{
 	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
 	"gemini-3-pro-high":          "gemini-pro-agent",
 	"gemini-3-pro-low":           "gemini-3.1-pro-low",
-	"gemini-default":             "gemini-pro-agent",
-	"gemini-3-flash-agent":       "gemini-pro-agent",
 
 	// Claude via Antigravity CloudCode
 	"claude-3-7-sonnet":          "claude-sonnet-4-6",
