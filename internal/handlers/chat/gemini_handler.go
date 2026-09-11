@@ -39,7 +39,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	}
 	modelName := reqMeta.Model
 	if modelName == "" {
-		modelName = "gemini-3-flash"
+		modelName = "gemini-3-flash-agent"
 	}
 
 	// OAuth refresh for providers using Gemini-native format (antigravity, etc)
