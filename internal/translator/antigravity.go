@@ -223,56 +223,19 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 	return &res
 }
 
-// AntigravityModelSynonyms maps client/UI model names to internal Google Antigravity backend model IDs.
+// AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
+// Only exact naming variants (dots vs dashes) are mapped — NO silent re-routing to different model tiers.
 var AntigravityModelSynonyms = map[string]string{
-	"gemini-default":             "gemini-3.5-flash-low",
-	"gemini-2.5-flash":           "gemini-3-flash-agent",
-	"gemini-2.5-pro":             "gemini-pro-agent",
-	"claude-3-7-sonnet":          "gemini-pro-agent",
-	"claude-3.7-sonnet":          "gemini-pro-agent",
-	"claude-sonnet-4-6":          "claude-sonnet-4-6",
+	"claude-3-7-sonnet":          "claude-sonnet-4-6",
+	"claude-3.7-sonnet":          "claude-sonnet-4-6",
 	"claude-sonnet-4.6":          "claude-sonnet-4-6",
-	"claude-sonnet-4-6-thinking": "claude-sonnet-4-6",
 	"claude-sonnet-4.6-thinking": "claude-sonnet-4-6",
-	"claude-opus-4-6-thinking":   "claude-opus-4-6-thinking",
 	"claude-opus-4.6-thinking":   "claude-opus-4-6-thinking",
-	"claude-opus-4-6":            "claude-opus-4-6-thinking",
 	"claude-opus-4.6":            "claude-opus-4-6-thinking",
-	"gpt-oss-120b-medium":        "gpt-oss-120b-medium",
 	"gpt-oss-120b":               "gpt-oss-120b-medium",
-	"gemini-3.5-flash":           "gemini-3-flash-agent",
-	"gemini-3.5-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.5-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.5-flash-low":       "gemini-3.5-flash-low",
-	"gemini-3.5-flash-extra-low": "gemini-3.5-flash-extra-low",
-	"gemini-3.5-flash-agent":     "gemini-3-flash-agent",
-	"gemini-3.1-pro-high":        "gemini-pro-agent",
-	"gemini-3.1-pro":             "gemini-pro-agent",
-	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
-	"gemini-3-pro-high":          "gemini-pro-agent",
-	"gemini-3-pro-low":           "gemini-3.1-pro-low",
-	"gemini-3.6-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.6-flash-low":       "gemini-3.5-flash-low",
-	"gemini-3.6-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.7-flash":           "gemini-pro-agent",
-	"gemini-3.7-flash-high":      "gemini-pro-agent",
-	"gemini-3.7-flash-agent":     "gemini-pro-agent",
-	"gemini-3.7-flash-medium":    "gemini-3.1-pro-low",
-	"gemini-3.7-flash-low":       "gemini-3.1-pro-low",
-	"gemini-3.7-flash-extra-low": "gemini-3.5-flash-extra-low",
-	"gemini-3.7-flash-thinking":  "gemini-pro-agent",
-	"gemini-3.8-flash":           "gemini-pro-agent",
-	"gemini-3.8-flash-high":      "gemini-pro-agent",
-	"gemini-3.8-flash-agent":     "gemini-pro-agent",
-	"gemini-3.8-flash-medium":    "gemini-3.1-pro-low",
-	"gemini-3.8-flash-low":       "gemini-3.1-pro-low",
-	"gemini-3.8-flash-extra-low": "gemini-3.5-flash-extra-low",
-	"gemini-3.8-flash-thinking":  "gemini-pro-agent",
-	"gemini-flash-3.8":           "gemini-pro-agent",
-	"gemini-flash-3.7":           "gemini-pro-agent",
 }
 
-// NormalizeAntigravityModel maps known aliases/synonyms to Antigravity internal backend model names.
+// NormalizeAntigravityModel preserves exact model request names without falling back to pro-agent.
 func NormalizeAntigravityModel(model string) string {
 	m := strings.ToLower(model)
 	if canonical, ok := AntigravityModelSynonyms[m]; ok {
