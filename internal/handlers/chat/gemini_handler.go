@@ -38,6 +38,10 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 		log.Warn("gemini", "parse model failed", "error", err)
 	}
 	modelName := reqMeta.Model
+	if strings.Contains(modelName, "/") {
+		parts := strings.SplitN(modelName, "/", 2)
+		modelName = parts[1]
+	}
 	if modelName == "" {
 		modelName = "gemini-3-flash-agent"
 	}
@@ -91,6 +95,8 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 			return h.forwardRequest(ctx, w, cfg, apiKey, body, isStream, translateResponse, metrics)
 		}
 	}
+
+	log.Info("gemini_exec", "provider", provider, "modelName", modelName, "projectID", projectID)
 
 	resp, err := proxy.ForwardGemini(ctx, h.Client, cfg, apiKey, string(body), isStream, projectID, modelName)
 	if err != nil {

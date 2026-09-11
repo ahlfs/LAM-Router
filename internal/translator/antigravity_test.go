@@ -126,12 +126,12 @@ func TestNormalizeAntigravityModel(t *testing.T) {
 		{"claude-3-7-sonnet", "claude-sonnet-4-6"},
 		{"claude-3.7-sonnet", "claude-sonnet-4-6"},
 		{"claude-sonnet-4.6", "claude-sonnet-4-6"},
-		{"gemini-3.8-flash", "gemini-3-flash-agent"},
-		{"gemini-3.7-flash", "gemini-3-flash-agent"},
-		{"gemini-3.7-flash-high", "gemini-3-flash-agent"},
-		{"gemini-3.7-flash-medium", "gemini-3-flash-agent"},
-		{"gemini-3.7-flash-low", "gemini-3-flash-agent"},
-		{"gemini-3-flash-agent", "gemini-3-flash-agent"},
+		{"gemini-3.8-flash", "gemini-pro-agent"},
+		{"gemini-3.7-flash", "gemini-pro-agent"},
+		{"gemini-3.7-flash-high", "gemini-pro-agent"},
+		{"gemini-3.7-flash-medium", "gemini-pro-agent"},
+		{"gemini-3.7-flash-low", "gemini-pro-agent"},
+		{"gemini-3-flash-agent", "gemini-pro-agent"},
 	}
 
 	for _, tt := range tests {

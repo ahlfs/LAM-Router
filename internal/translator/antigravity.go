@@ -224,42 +224,43 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 }
 
 // AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
-// Google Deprecation Notice: Gemini 3.5 Flash has been deprecated upstream.
-// All Flash variants map to production gemini-3-flash-agent.
+// Google Deprecation Notice: Gemini 3.5 Flash and 3-flash-agent legacy aliases have been shut down upstream.
+// All requests are routed to active flagship models: gemini-pro-agent (Gemini Pro/Flash 3.7+ Reasoning) or claude-sonnet-4-6.
 var AntigravityModelSynonyms = map[string]string{
-	// Gemini 3.8 Family (Routes to High-Speed Gemini 3 Flash Agent Fleet)
-	"gemini-3.8-flash":           "gemini-3-flash-agent",
-	"gemini-3.8-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.8-flash-medium":    "gemini-3-flash-agent",
-	"gemini-3.8-flash-low":       "gemini-3-flash-agent",
-	"gemini-3.8-flash-thinking":  "gemini-3-flash-agent",
-	"gemini-3.8-flash-cyber":     "gemini-3-flash-agent",
-	"gemini-flash-3.8":           "gemini-3-flash-agent",
+	// Gemini 3.8 Family
+	"gemini-3.8-flash":           "gemini-pro-agent",
+	"gemini-3.8-flash-high":      "gemini-pro-agent",
+	"gemini-3.8-flash-medium":    "gemini-pro-agent",
+	"gemini-3.8-flash-low":       "gemini-pro-agent",
+	"gemini-3.8-flash-thinking":  "gemini-pro-agent",
+	"gemini-3.8-flash-cyber":     "gemini-pro-agent",
+	"gemini-flash-3.8":           "gemini-pro-agent",
 
-	// Gemini 3.7 Family (Routes to High-Speed Gemini 3 Flash Agent Fleet)
-	"gemini-3.7-flash":           "gemini-3-flash-agent",
-	"gemini-3.7-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.7-flash-agent":     "gemini-3-flash-agent",
-	"gemini-3.7-flash-medium":    "gemini-3-flash-agent",
-	"gemini-3.7-flash-low":       "gemini-3-flash-agent",
-	"gemini-3.7-flash-extra-low": "gemini-3-flash-agent",
-	"gemini-3.7-flash-thinking":  "gemini-3-flash-agent",
-	"gemini-flash-3.7":           "gemini-3-flash-agent",
+	// Gemini 3.7 Family
+	"gemini-3.7-flash":           "gemini-pro-agent",
+	"gemini-3.7-flash-high":      "gemini-pro-agent",
+	"gemini-3.7-flash-agent":     "gemini-pro-agent",
+	"gemini-3.7-flash-medium":    "gemini-pro-agent",
+	"gemini-3.7-flash-low":       "gemini-pro-agent",
+	"gemini-3.7-flash-extra-low": "gemini-pro-agent",
+	"gemini-3.7-flash-thinking":  "gemini-pro-agent",
+	"gemini-flash-3.7":           "gemini-pro-agent",
 
 	// Gemini 3.6 Family
-	"gemini-3.6-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.6-flash-medium":    "gemini-3-flash-agent",
-	"gemini-3.6-flash-low":       "gemini-3-flash-agent",
+	"gemini-3.6-flash-high":      "gemini-pro-agent",
+	"gemini-3.6-flash-medium":    "gemini-pro-agent",
+	"gemini-3.6-flash-low":       "gemini-pro-agent",
 
 	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
-	"gemini-2.5-flash":           "gemini-3-flash-agent",
+	"gemini-2.5-flash":           "gemini-pro-agent",
 	"gemini-3.1-pro-high":        "gemini-pro-agent",
 	"gemini-3.1-pro":             "gemini-pro-agent",
 	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
 	"gemini-3-pro-high":          "gemini-pro-agent",
 	"gemini-3-pro-low":           "gemini-3.1-pro-low",
-	"gemini-default":             "gemini-3-flash-agent",
+	"gemini-default":             "gemini-pro-agent",
+	"gemini-3-flash-agent":       "gemini-pro-agent",
 
 	// Claude via Antigravity CloudCode
 	"claude-3-7-sonnet":          "claude-sonnet-4-6",
@@ -285,6 +286,7 @@ func NormalizeAntigravityModel(model string) string {
 // WrapForAntigravity wraps a standard Gemini request in Antigravity API envelope.
 func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte, error) {
 	modelName = NormalizeAntigravityModel(modelName)
+	log.Info("wrap_antigravity", "finalModelName", modelName, "projectID", projectID)
 
 	var geminiReq GeminiRequest
 	if err := json.Unmarshal(geminiBody, &geminiReq); err == nil {

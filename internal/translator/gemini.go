@@ -101,7 +101,7 @@ type GeminiFunctionDecl struct {
 
 // GeminiRequest is the full Gemini API request body.
 type GeminiRequest struct {
-	SystemInstruction *GeminiContent  `json:"system_instruction,omitempty"`
+	SystemInstruction *GeminiContent  `json:"systemInstruction,omitempty"`
 	Contents          []GeminiContent `json:"contents"`
 	Tools             []GeminiTool    `json:"tools,omitempty"`
 	ToolConfig        any             `json:"toolConfig,omitempty"`
