@@ -3,6 +3,7 @@ package srouterapi
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -1297,15 +1298,123 @@ func (h *SRouterHandler) HandleProviderVerify(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	if body.APIKey == nil || *body.APIKey == "" {
+	apiKey := ""
+	if body.APIKey != nil {
+		apiKey = strings.TrimSpace(*body.APIKey)
+	}
+
+	baseURL := ""
+	if body.BaseURL != nil {
+		baseURL = strings.TrimSpace(*body.BaseURL)
+	}
+
+	// 1. If provider is Antigravity / OAuth / Local free provider, pass without live probe
+	providerID := strings.ToLower(body.Provider)
+	if providerID == "antigravity" || providerID == "framer" || providerID == "opencode_zen" || providerID == "mimo-free" {
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"valid":   true,
+			"message": "Provider connection is active",
+		})
+		return
+	}
+
+	if apiKey == "" && !strings.Contains(baseURL, "localhost") && !strings.Contains(baseURL, "127.0.0.1") {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "API Key is required for verification")
 		return
 	}
 
+	// Resolve Verification Endpoint (GET /models or GET /v1/models)
+	modelsEndpoint := ""
+	if baseURL != "" {
+		if strings.Contains(baseURL, "/chat/completions") {
+			modelsEndpoint = strings.Replace(baseURL, "/chat/completions", "/models", 1)
+		} else if strings.HasSuffix(baseURL, "/v1") || strings.HasSuffix(baseURL, "/v1/") {
+			modelsEndpoint = strings.TrimRight(baseURL, "/") + "/models"
+		} else {
+			modelsEndpoint = strings.TrimRight(baseURL, "/") + "/v1/models"
+		}
+	} else {
+		// Default known provider fallback
+		switch providerID {
+		case "anthropic":
+			modelsEndpoint = "https://api.anthropic.com/v1/models"
+		case "deepseek":
+			modelsEndpoint = "https://api.deepseek.com/models"
+		case "groq":
+			modelsEndpoint = "https://api.groq.com/openai/v1/models"
+		case "openrouter":
+			modelsEndpoint = "https://openrouter.ai/api/v1/models"
+		case "cerebras":
+			modelsEndpoint = "https://api.cerebras.ai/v1/models"
+		case "together":
+			modelsEndpoint = "https://api.together.xyz/v1/models"
+		case "fireworks":
+			modelsEndpoint = "https://api.fireworks.ai/inference/v1/models"
+		case "mistral":
+			modelsEndpoint = "https://api.mistral.ai/v1/models"
+		case "perplexity":
+			modelsEndpoint = "https://api.perplexity.ai/models"
+		case "xai":
+			modelsEndpoint = "https://api.x.ai/v1/models"
+		case "siliconflow":
+			modelsEndpoint = "https://api.siliconflow.cn/v1/models"
+		case "gemini":
+			modelsEndpoint = "https://generativelanguage.googleapis.com/v1beta/openai/models"
+		default:
+			modelsEndpoint = "https://api.openai.com/v1/models"
+		}
+	}
+
+	// Execute Live Ping Probe
+	client := &http.Client{Timeout: 7 * time.Second}
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, modelsEndpoint, nil)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("Invalid URL endpoint: %v", err))
+		return
+	}
+
+	if providerID == "anthropic" || body.Protocol == "anthropic" {
+		req.Header.Set("x-api-key", apiKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	} else if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success": false,
+			"valid":   false,
+			"message": fmt.Sprintf("Connection failed: %v", err),
+		})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success": true,
+			"valid":   true,
+			"message": "Live connection verified (HTTP 200 OK)",
+		})
+		return
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+			"success": false,
+			"valid":   false,
+			"message": fmt.Sprintf("Authentication failed: HTTP %d (Invalid API Key)", resp.StatusCode),
+		})
+		return
+	}
+
+	bodyBytes, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-		"success": true,
-		"valid":   true,
-		"message": "Endpoint verified successfully",
+		"success": false,
+		"valid":   false,
+		"message": fmt.Sprintf("Upstream returned HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(bodyBytes))),
 	})
 }
 
