@@ -1706,14 +1706,41 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 		return nil, fmt.Errorf("no models discovered from upstream")
 	}
 
-	// Smart Sync: Upsert scanned models into database
+	// Smart Sync with Pruning:
+	// 1. Keep track of all currently active upstream model IDs
+	// 2. Prune models in database for this provider that no longer exist upstream (unless manually custom)
+	// 3. Upsert scanned models preserving their active/disabled toggle state
 	tx, err := h.db.Begin()
 	if err == nil {
+		validModelIDs := make(map[string]bool)
 		for _, m := range scanned {
 			mid, _ := m["id"].(string)
-			_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, created_at) VALUES (?, ?, ?)
-ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_at`, providerID, mid, now)
+			validModelIDs[mid] = true
+			_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
+				VALUES (?, ?, 128000, 0, ?)
+				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
+				providerID, mid, now)
 		}
+
+		// Prune stale models
+		rows, qErr := tx.Query(`SELECT model_id FROM provider_models WHERE provider_id = ? AND is_custom = 0`, providerID)
+		if qErr == nil {
+			var toDelete []string
+			for rows.Next() {
+				var existingID string
+				if err := rows.Scan(&existingID); err == nil {
+					if !validModelIDs[existingID] {
+						toDelete = append(toDelete, existingID)
+					}
+				}
+			}
+			rows.Close()
+
+			for _, delID := range toDelete {
+				_, _ = tx.Exec(`DELETE FROM provider_models WHERE provider_id = ? AND model_id = ?`, providerID, delID)
+			}
+		}
+
 		_ = tx.Commit()
 	}
 
