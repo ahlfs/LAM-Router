@@ -129,8 +129,8 @@ func TestNormalizeAntigravityModel(t *testing.T) {
 		{"gemini-3.8-flash", "gemini-3-flash-agent"},
 		{"gemini-3.7-flash", "gemini-3-flash-agent"},
 		{"gemini-3.7-flash-high", "gemini-3-flash-agent"},
-		{"gemini-3.7-flash-medium", "gemini-3.5-flash-low"},
-		{"gemini-3.7-flash-low", "gemini-3.5-flash-low"},
+		{"gemini-3.7-flash-medium", "gemini-3-flash-agent"},
+		{"gemini-3.7-flash-low", "gemini-3-flash-agent"},
 		{"gemini-3-flash-agent", "gemini-3-flash-agent"},
 	}
 
@@ -249,18 +249,7 @@ func TestStripCompetitivePrompts(t *testing.T) {
 
 func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 	validBackendModels := map[string]bool{
-		"gemini-3.8-flash":           true,
-		"gemini-3.8-flash-cyber":     true,
-		"gemini-3.7-flash":           true,
-		"gemini-3.7-flash-high":      true,
-		"gemini-3.7-flash-medium":    true,
-		"gemini-3.7-flash-low":       true,
-		"gemini-3.6-flash-high":      true,
-		"gemini-3.6-flash-medium":    true,
-		"gemini-3.6-flash-low":       true,
 		"gemini-3-flash-agent":       true,
-		"gemini-3.5-flash-low":       true,
-		"gemini-3.5-flash-extra-low": true,
 		"gemini-pro-agent":           true,
 		"gemini-3.1-pro-low":         true,
 		"claude-sonnet-4-6":          true,

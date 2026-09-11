@@ -224,13 +224,14 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 }
 
 // AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
-// Matches Google CloudCode production agent IDs precisely (gemini-3-flash-agent / gemini-pro-agent / claude-sonnet-4-6).
+// Google Deprecation Notice: Gemini 3.5 Flash has been deprecated upstream.
+// All Flash variants map to production gemini-3-flash-agent.
 var AntigravityModelSynonyms = map[string]string{
 	// Gemini 3.8 Family (Routes to High-Speed Gemini 3 Flash Agent Fleet)
 	"gemini-3.8-flash":           "gemini-3-flash-agent",
 	"gemini-3.8-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.8-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.8-flash-low":       "gemini-3.5-flash-low",
+	"gemini-3.8-flash-medium":    "gemini-3-flash-agent",
+	"gemini-3.8-flash-low":       "gemini-3-flash-agent",
 	"gemini-3.8-flash-thinking":  "gemini-3-flash-agent",
 	"gemini-3.8-flash-cyber":     "gemini-3-flash-agent",
 	"gemini-flash-3.8":           "gemini-3-flash-agent",
@@ -239,16 +240,16 @@ var AntigravityModelSynonyms = map[string]string{
 	"gemini-3.7-flash":           "gemini-3-flash-agent",
 	"gemini-3.7-flash-high":      "gemini-3-flash-agent",
 	"gemini-3.7-flash-agent":     "gemini-3-flash-agent",
-	"gemini-3.7-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.7-flash-low":       "gemini-3.5-flash-low",
-	"gemini-3.7-flash-extra-low": "gemini-3.5-flash-extra-low",
+	"gemini-3.7-flash-medium":    "gemini-3-flash-agent",
+	"gemini-3.7-flash-low":       "gemini-3-flash-agent",
+	"gemini-3.7-flash-extra-low": "gemini-3-flash-agent",
 	"gemini-3.7-flash-thinking":  "gemini-3-flash-agent",
 	"gemini-flash-3.7":           "gemini-3-flash-agent",
 
 	// Gemini 3.6 Family
 	"gemini-3.6-flash-high":      "gemini-3-flash-agent",
-	"gemini-3.6-flash-medium":    "gemini-3.5-flash-low",
-	"gemini-3.6-flash-low":       "gemini-3.5-flash-low",
+	"gemini-3.6-flash-medium":    "gemini-3-flash-agent",
+	"gemini-3.6-flash-low":       "gemini-3-flash-agent",
 
 	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
