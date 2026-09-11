@@ -1153,6 +1153,7 @@ func (h *SRouterHandler) HandleProviderAdd(w http.ResponseWriter, r *http.Reques
 		Category             string         `json:"category"`
 		Protocol             string         `json:"protocol"`
 		BaseURL              *string        `json:"base_url"`
+		BaseURLCamel         *string        `json:"baseUrl"`
 		APIKey               *string        `json:"apiKey"`
 		AccessToken          *string        `json:"accessToken"`
 		RefreshToken         *string        `json:"refreshToken"`
@@ -1176,6 +1177,10 @@ func (h *SRouterHandler) HandleProviderAdd(w http.ResponseWriter, r *http.Reques
 	}
 	if body.Protocol == "" {
 		body.Protocol = "openai"
+	}
+
+	if body.BaseURL == nil && body.BaseURLCamel != nil {
+		body.BaseURL = body.BaseURLCamel
 	}
 
 	id := body.ID
@@ -1233,7 +1238,11 @@ ON CONFLICT(id) DO UPDATE SET
 
 	// Also register into native providerConnections if applicable
 	if body.APIKey != nil && *body.APIKey != "" {
-		dataJSON, _ := json.Marshal(map[string]string{"apiKey": *body.APIKey})
+		connMap := map[string]any{"apiKey": *body.APIKey}
+		if body.BaseURL != nil && *body.BaseURL != "" {
+			connMap["baseUrl"] = *body.BaseURL
+		}
+		dataJSON, _ := json.Marshal(connMap)
 		_, _ = h.db.Exec(`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, 'api_key', ?, 1, ?, datetime('now'), datetime('now'))
 ON CONFLICT(id) DO UPDATE SET data = excluded.data, updatedAt = datetime('now')`, id, providerID, body.Name, string(dataJSON))
 	}

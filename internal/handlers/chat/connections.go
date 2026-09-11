@@ -151,8 +151,18 @@ func (h *ChatHandler) getProviderConfig(provider string, connData *ConnectionDat
 	var baseCfg *providers.ProviderConfig
 
 	if connData != nil && connData.BaseURL != "" {
+		baseURL := connData.BaseURL
+		if strings.HasSuffix(provider, "openai") || provider == "custom_openai" {
+			if !strings.HasSuffix(baseURL, "/chat/completions") {
+				if strings.HasSuffix(baseURL, "/v1") || strings.HasSuffix(baseURL, "/v1/") {
+					baseURL = strings.TrimRight(baseURL, "/") + "/chat/completions"
+				} else if !strings.Contains(baseURL, "/chat") {
+					baseURL = strings.TrimRight(baseURL, "/") + "/v1/chat/completions"
+				}
+			}
+		}
 		baseCfg = &providers.ProviderConfig{
-			BaseURL:    connData.BaseURL,
+			BaseURL:    baseURL,
 			AuthHeader: constants.HeaderAuthorization,
 			AuthScheme: constants.AuthSchemeBearer,
 		}
