@@ -23,9 +23,25 @@ const ApiKeyContextKey ContextKey = "apiKey"
 func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 1. Allow authenticated admin sessions from Web Dashboard (Playground / Benchmark)
+			if cookie, err := r.Cookie("srouter_admin_session"); err == nil && cookie != nil && cookie.Value != "" {
+				if repo.VerifyAdminSession(cookie.Value) {
+					adminKeyName := "Admin Dashboard Session"
+					adminKeyObj := &models.APIKey{
+						ID:       "admin_session",
+						Key:      "admin",
+						Name:     &adminKeyName,
+						IsActive: 1,
+					}
+					ctx := context.WithValue(r.Context(), ApiKeyContextKey, adminKeyObj)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
+			}
+
 			apiKeyString := ExtractApiKey(r)
 			if apiKeyString == "" {
-				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer <key> header or ?key=<key> query parameter.")
+				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer *** header or ?key=<key> query parameter.")
 				return
 			}
 

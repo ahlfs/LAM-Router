@@ -1,7 +1,9 @@
 package db
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -22,6 +24,23 @@ func NewRepo(db *sql.DB) *Repo {
 // RawDB returns the underlying *sql.DB connection for direct queries.
 func (r *Repo) RawDB() *sql.DB {
 	return r.db
+}
+
+// VerifyAdminSession validates an admin session token hash against admin_sessions table.
+func (r *Repo) VerifyAdminSession(token string) bool {
+	if token == "" {
+		return false
+	}
+	h := sha256.Sum256([]byte(token))
+	tokenHash := hex.EncodeToString(h[:])
+	now := time.Now().UnixMilli()
+
+	// Clean expired sessions
+	_, _ = r.db.Exec("DELETE FROM admin_sessions WHERE expires_at <= ?", now)
+
+	var count int
+	err := r.db.QueryRow("SELECT COUNT(*) FROM admin_sessions WHERE token_hash = ? AND expires_at > ?", tokenHash, now).Scan(&count)
+	return err == nil && count > 0
 }
 
 // ValidateApiKey checks if the given API key exists and is active.
