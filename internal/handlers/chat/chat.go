@@ -320,15 +320,28 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// 1. Static Combos from combos table
 	combos, err := h.Repo.GetCombos()
 	if err == nil {
 		for _, c := range combos {
-			addModel(c.Name, "system", 0, 0)
+			addModel(c.Name, "combo", 0, 0)
 		}
 	}
 
-	// Dynamic & Connected Provider Models from DB
+	// 2. Dynamic Combos from fallback_rules table (created via UI Combo tab)
 	rawDB := h.Repo.RawDB()
+	if rawDB != nil {
+		fbRows, err := rawDB.Query(`SELECT DISTINCT source_model FROM fallback_rules WHERE enabled = 1`)
+		if err == nil {
+			for fbRows.Next() {
+				var sourceModel string
+				if err := fbRows.Scan(&sourceModel); err == nil && sourceModel != "" {
+					addModel(sourceModel, "combo", 0, 0)
+				}
+			}
+			fbRows.Close()
+		}
+	}
 	if rawDB != nil {
 		// 1. Get list of active/connected providers (from both providers & providerConnections tables)
 		connectedProviders := make(map[string]bool)
