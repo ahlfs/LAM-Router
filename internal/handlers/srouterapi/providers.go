@@ -1915,18 +1915,14 @@ func (h *SRouterHandler) HandleProviderSyncModels(w http.ResponseWriter, r *http
 
 	scanned, err := h.ScanAndSyncProviderModels(providerID)
 	if err != nil {
-		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-			"success":    true,
-			"providerId": providerID,
-			"message":    fmt.Sprintf("Scanned preset models for %s", providerID),
-			"models":     scanned,
-		})
+		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("Failed to sync models: %v", err))
 		return
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"success":    true,
 		"providerId": providerID,
+		"count":      len(scanned),
 		"models":     scanned,
 	})
 }
