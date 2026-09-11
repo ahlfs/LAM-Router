@@ -172,14 +172,11 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 		}
 	}
 
-	// 3. Check if it's a combo name
+	// 3. Check if it's a combo name (combos table or fallback_rules table)
 	combo, err := h.Repo.GetComboByName(modelStr)
 	if err == nil && combo != nil && combo.Models != "" {
 		var modelStrings []string
 		if err := json.Unmarshal([]byte(combo.Models), &modelStrings); err == nil && len(modelStrings) > 0 {
-			// Flatten nested combos into concrete leaves so rotation covers
-			// every reachable model (a nested combo entry used to collapse to
-			// its first leaf, so combo-wombo -> free-tier never rotated).
 			flattened, flatErr := h.flattenComboModels(modelStrings)
 			if flatErr != nil {
 				return nil, flatErr
@@ -192,6 +189,33 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 				if firstInfo != nil {
 					firstInfo.ComboModels = flattened
 					firstInfo.Strategy = combo.Strategy
+					return firstInfo, nil
+				}
+			}
+		}
+	}
+
+	// 3b. Check fallback_rules table (created via UI Combo tab)
+	rawDB := h.Repo.RawDB()
+	if rawDB != nil {
+		rows, err := rawDB.Query(`SELECT target_model FROM fallback_rules WHERE source_model = ? AND enabled = 1 ORDER BY priority ASC`, modelStr)
+		if err == nil {
+			var targets []string
+			for rows.Next() {
+				var tm string
+				if err := rows.Scan(&tm); err == nil && tm != "" {
+					targets = append(targets, tm)
+				}
+			}
+			rows.Close()
+			if len(targets) > 0 {
+				firstInfo := h.resolveModelEntry(targets[0])
+				if firstInfo == nil {
+					firstInfo, _ = h.resolveModel(targets[0])
+				}
+				if firstInfo != nil {
+					firstInfo.ComboModels = targets
+					firstInfo.Strategy = "fallback"
 					return firstInfo, nil
 				}
 			}
