@@ -1,6 +1,11 @@
 # Build artifacts
 /9router-go
 /9router-go-*
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
 
 # Test binaries
 *.test
