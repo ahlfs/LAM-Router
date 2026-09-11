@@ -1558,6 +1558,7 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 	if len(res.Data) > 0 {
 		for _, item := range res.Data {
 			mID := item.ID
+			// If already prefixed with providerID, keep it; otherwise add prefix
 			if !strings.HasPrefix(mID, providerID+"/") && providerID != "openai" {
 				mID = providerID + "/" + mID
 			} else if providerID == "openai" && !strings.HasPrefix(mID, "openai/") {
@@ -1567,6 +1568,10 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 				"id":     mID,
 				"object": "model",
 			})
+			_, _ = h.db.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
+				VALUES (?, ?, 128000, 0, ?)
+				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
+				providerID, mID, now)
 		}
 	} else if len(res.Models) > 0 {
 		for _, item := range res.Models {
@@ -1581,6 +1586,10 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 				"id":     mID,
 				"object": "model",
 			})
+			_, _ = h.db.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
+				VALUES (?, ?, 128000, 0, ?)
+				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
+				providerID, mID, now)
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 
 	"9router/proxy/internal/providers"
 )
@@ -28,9 +29,18 @@ func ForwardOpenAI(ctx context.Context, client *http.Client, cfg *providers.Prov
 	if isStream {
 		headers["Accept"] = "text/event-stream"
 	}
-	resp, err := DoRequest(ctx, client, "POST", cfg.BaseURL, headers, body)
+	url := cfg.BaseURL
+	if !strings.HasSuffix(url, "/chat/completions") && !strings.HasSuffix(url, "/messages") && !strings.HasSuffix(url, "/responses") && !strings.HasSuffix(url, "/embeddings") && !strings.HasSuffix(url, "/images/generations") {
+		if strings.HasSuffix(url, "/v1") || strings.HasSuffix(url, "/v1/") {
+			url = strings.TrimRight(url, "/") + "/chat/completions"
+		} else if !strings.Contains(url, "/chat") {
+			url = strings.TrimRight(url, "/") + "/v1/chat/completions"
+		}
+	}
+
+	resp, err := DoRequest(ctx, client, "POST", url, headers, body)
 	if err != nil {
-		return nil, fmt.Errorf("forward to %s: %w", cfg.BaseURL, err)
+		return nil, fmt.Errorf("forward to %s: %w", url, err)
 	}
 	return resp, nil
 }
