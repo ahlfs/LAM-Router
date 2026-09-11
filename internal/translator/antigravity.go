@@ -232,39 +232,42 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 }
 
 // AntigravityModelSynonyms maps UI model aliases to internal Google Antigravity backend model IDs.
-// Confirmed: Only gemini-pro-agent (+ claude/gpt) returns 200 from daily-cloudcode-pa.googleapis.com.
-// All flash model IDs (3.7/3.8/3-flash-agent) return 404 from Google CloudCode on this account.
-// 9router works because its MITM intercepts antigravity traffic and re-routes it to
-// its own /v1/chat/completions API (port 3035), which may use different providers internally.
+// Based on confirmed upstream 9router mapping from the developer:
+// - 3.8 flash variants → gemini-3.8-flash-{high,medium,low} with thinkingConfig
+// - 3.7 flash high/medium/low → gemini-3.7-flash-tiered with thinkingConfig level
+// - pro variants → gemini-pro-agent
 var AntigravityModelSynonyms = map[string]string{
-	// Gemini Flash Family — all route to gemini-pro-agent (only active model on CloudCode)
-	"gemini-3.8-flash":           "gemini-pro-agent",
-	"gemini-3.8-flash-high":      "gemini-pro-agent",
-	"gemini-3.8-flash-medium":    "gemini-pro-agent",
-	"gemini-3.8-flash-low":       "gemini-pro-agent",
-	"gemini-3.8-flash-thinking":  "gemini-pro-agent",
-	"gemini-3.8-flash-cyber":     "gemini-pro-agent",
-	"gemini-flash-3.8":           "gemini-pro-agent",
+	// Gemini 3.8 Family — fallback to 3.7-flash-tiered (3.8 not yet available on all accounts)
+	"gemini-3.8-flash":           "gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-high":      "gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-medium":    "gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-low":       "gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-thinking":  "gemini-3.7-flash-tiered",
+	"gemini-3.8-flash-cyber":     "gemini-3.7-flash-tiered",
+	"gemini-flash-3.8":           "gemini-3.7-flash-tiered",
 
-	"gemini-3.7-flash":           "gemini-pro-agent",
-	"gemini-3.7-flash-high":      "gemini-pro-agent",
-	"gemini-3.7-flash-agent":     "gemini-pro-agent",
-	"gemini-3.7-flash-medium":    "gemini-pro-agent",
-	"gemini-3.7-flash-low":       "gemini-pro-agent",
-	"gemini-3.7-flash-extra-low": "gemini-pro-agent",
-	"gemini-3.7-flash-thinking":  "gemini-pro-agent",
-	"gemini-flash-3.7":           "gemini-pro-agent",
+	// Gemini 3.7 Family — uses gemini-3.7-flash-tiered with thinkingLevel
+	"gemini-3.7-flash":           "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-high":      "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-agent":     "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-medium":    "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-low":       "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-extra-low": "gemini-3.7-flash-tiered",
+	"gemini-3.7-flash-thinking":  "gemini-3.7-flash-tiered",
+	"gemini-flash-3.7":           "gemini-3.7-flash-tiered",
 
-	"gemini-3.6-flash-high":      "gemini-pro-agent",
-	"gemini-3.6-flash-medium":    "gemini-pro-agent",
-	"gemini-3.6-flash-low":       "gemini-pro-agent",
+	// Gemini 3.6 Family
+	"gemini-3.6-flash-high":      "gemini-3.7-flash-tiered",
+	"gemini-3.6-flash-medium":    "gemini-3.7-flash-tiered",
+	"gemini-3.6-flash-low":       "gemini-3.7-flash-tiered",
 
-	"gemini-3-flash-agent":       "gemini-pro-agent",
-	"gemini-default":             "gemini-pro-agent",
+	// Legacy flash agent — deprecated upstream, redirect to tiered
+	"gemini-3-flash-agent":       "gemini-3.7-flash-tiered",
+	"gemini-default":             "gemini-3.7-flash-tiered",
 
 	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
-	"gemini-2.5-flash":           "gemini-pro-agent",
+	"gemini-2.5-flash":           "gemini-3.7-flash-tiered",
 	"gemini-3.1-pro-high":        "gemini-pro-agent",
 	"gemini-3.1-pro":             "gemini-pro-agent",
 	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
@@ -283,6 +286,30 @@ var AntigravityModelSynonyms = map[string]string{
 	"gpt-oss-120b":               "gpt-oss-120b-medium",
 }
 
+// antigravityThinkingLevels maps the original user-facing model alias to its thinking level.
+// Models not in this map get no thinkingConfig injected.
+var antigravityThinkingLevels = map[string]string{
+	"gemini-3.8-flash":           "medium",
+	"gemini-3.8-flash-high":      "high",
+	"gemini-3.8-flash-medium":    "medium",
+	"gemini-3.8-flash-low":       "low",
+	"gemini-3.8-flash-thinking":  "high",
+	"gemini-3.8-flash-cyber":     "high",
+	"gemini-flash-3.8":           "medium",
+	"gemini-3.7-flash-high":      "high",
+	"gemini-3.7-flash-agent":     "high",
+	"gemini-3.7-flash-medium":    "medium",
+	"gemini-3.7-flash-low":       "low",
+	"gemini-3.7-flash-extra-low": "low",
+	"gemini-3.7-flash-thinking":  "high",
+	"gemini-flash-3.7":           "high",
+	"gemini-3.6-flash-high":      "high",
+	"gemini-3.6-flash-medium":    "medium",
+	"gemini-3.6-flash-low":       "low",
+	"gemini-default":             "medium",
+	"gemini-2.5-flash":           "medium",
+}
+
 // NormalizeAntigravityModel preserves exact model request names without falling back to pro-agent.
 func NormalizeAntigravityModel(model string) string {
 	m := strings.ToLower(model)
@@ -294,11 +321,20 @@ func NormalizeAntigravityModel(model string) string {
 
 // WrapForAntigravity wraps a standard Gemini request in Antigravity API envelope.
 func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte, error) {
+	// Resolve thinking level from original model name BEFORE normalizing
+	originalModel := strings.ToLower(modelName)
+	thinkingLevel := antigravityThinkingLevels[originalModel]
+
 	modelName = NormalizeAntigravityModel(modelName)
-	log.Info("wrap_antigravity", "finalModelName", modelName, "projectID", projectID)
+	log.Info("wrap_antigravity", "finalModelName", modelName, "projectID", projectID, "thinkingLevel", thinkingLevel)
 
 	var geminiReq GeminiRequest
 	if err := json.Unmarshal(geminiBody, &geminiReq); err == nil {
+		// Inject thinkingConfig into generationConfig if needed
+		if thinkingLevel != "" {
+			geminiReq = injectThinkingConfig(geminiReq, thinkingLevel)
+		}
+
 		cleanedReq := StripCompetitivePrompts(&geminiReq)
 		if len(cleanedReq.Tools) > 0 {
 			cloaked, _ := CloakAntigravityRequest(cleanedReq, "")
@@ -322,6 +358,34 @@ func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte,
 		return nil, fmt.Errorf("marshal antigravity wrapper: %w", err)
 	}
 	return out, nil
+}
+
+// injectThinkingConfig merges thinkingConfig into the generationConfig of a Gemini request.
+func injectThinkingConfig(req GeminiRequest, level string) GeminiRequest {
+	thinkingCfg := map[string]interface{}{
+		"thinkingLevel":   level,
+		"includeThoughts": true,
+	}
+
+	if len(req.GenerationConfig) == 0 || string(req.GenerationConfig) == "null" {
+		// No existing generationConfig — create one with just thinkingConfig
+		genCfg := map[string]interface{}{
+			"thinkingConfig": thinkingCfg,
+		}
+		if data, err := json.Marshal(genCfg); err == nil {
+			req.GenerationConfig = data
+		}
+	} else {
+		// Merge thinkingConfig into existing generationConfig
+		var existing map[string]interface{}
+		if err := json.Unmarshal(req.GenerationConfig, &existing); err == nil {
+			existing["thinkingConfig"] = thinkingCfg
+			if data, err := json.Marshal(existing); err == nil {
+				req.GenerationConfig = data
+			}
+		}
+	}
+	return req
 }
 
 // UnwrapAntigravityResponse extracts the inner Gemini response from antigravity envelope.
