@@ -169,6 +169,110 @@ func (h *SRouterHandler) HandleKeyAddCredit(w http.ResponseWriter, r *http.Reque
 	handlerutil.WriteJSON(w, http.StatusOK, k)
 }
 
+// PUT/PATCH /v1/keys/{id}
+func (h *SRouterHandler) HandleKeyUpdate(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var body struct {
+		Name          *string  `json:"name"`
+		Enabled       *bool    `json:"enabled"`
+		RateLimit     *int     `json:"rateLimit"`
+		QuotaLimit    *int     `json:"quotaLimit"`
+		CreditLimit   *float64 `json:"creditLimit"`
+		AllowedModels []string `json:"allowed_models"`
+		ResetUsage    *bool    `json:"resetUsage"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	// Fetch existing key
+	var k DBAPIKey
+	var enabledInt int
+	var modelsStr *string
+	err := h.db.QueryRow("SELECT id, key, name, enabled, rate_limit, quota_limit, usage_tokens, credit_limit, usage_cost, allowed_models, created_at FROM api_keys WHERE id = ?", id).Scan(
+		&k.ID, &k.Key, &k.Name, &enabledInt, &k.RateLimit,
+		&k.QuotaLimit, &k.UsageTokens, &k.CreditLimit,
+		&k.UsageCost, &modelsStr, &k.CreatedAt,
+	)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusNotFound, fmt.Sprintf("Key '%s' not found", id))
+		return
+	}
+
+	name := k.Name
+	if body.Name != nil && *body.Name != "" {
+		name = *body.Name
+	}
+	enabled := enabledInt == 1
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	rateLimit := k.RateLimit
+	if body.RateLimit != nil {
+		rateLimit = *body.RateLimit
+	}
+	quotaLimit := k.QuotaLimit
+	if body.QuotaLimit != nil {
+		quotaLimit = *body.QuotaLimit
+	}
+	creditLimit := k.CreditLimit
+	if body.CreditLimit != nil {
+		creditLimit = *body.CreditLimit
+	}
+
+	newModelsStr := modelsStr
+	if body.AllowedModels != nil {
+		if len(body.AllowedModels) > 0 {
+			b, _ := json.Marshal(body.AllowedModels)
+			s := string(b)
+			newModelsStr = &s
+			k.AllowedModels = body.AllowedModels
+		} else {
+			newModelsStr = nil
+			k.AllowedModels = []string{}
+		}
+	} else if modelsStr != nil && *modelsStr != "" {
+		_ = json.Unmarshal([]byte(*modelsStr), &k.AllowedModels)
+	}
+
+	newEnabledInt := 0
+	if enabled {
+		newEnabledInt = 1
+	}
+
+	if body.ResetUsage != nil && *body.ResetUsage {
+		_, err = h.db.Exec(`
+UPDATE api_keys 
+SET name = ?, enabled = ?, rate_limit = ?, quota_limit = ?, credit_limit = ?, allowed_models = ?, usage_tokens = 0, usage_cost = 0
+WHERE id = ?
+`, name, newEnabledInt, rateLimit, quotaLimit, creditLimit, newModelsStr, id)
+		k.UsageTokens = 0
+		k.UsageCost = 0
+	} else {
+		_, err = h.db.Exec(`
+UPDATE api_keys 
+SET name = ?, enabled = ?, rate_limit = ?, quota_limit = ?, credit_limit = ?, allowed_models = ?
+WHERE id = ?
+`, name, newEnabledInt, rateLimit, quotaLimit, creditLimit, newModelsStr, id)
+	}
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	// Also sync into 9router apiKeys table
+	_, _ = h.db.Exec(`UPDATE apiKeys SET name = ?, isActive = ? WHERE id = ?`, name, newEnabledInt, id)
+
+	k.Name = name
+	k.Enabled = enabled
+	k.RateLimit = rateLimit
+	k.QuotaLimit = quotaLimit
+	k.CreditLimit = creditLimit
+
+	handlerutil.WriteJSON(w, http.StatusOK, k)
+}
+
 // DELETE /v1/keys/{id}
 func (h *SRouterHandler) HandleKeyDelete(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")

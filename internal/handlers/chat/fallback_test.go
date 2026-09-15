@@ -32,9 +32,12 @@ func TestApplyTokenSavers_AllOff(t *testing.T) {
 	defer cleanup()
 
 	body := []byte(`{"messages":[{"role":"user","content":"hello"}]}`)
-	got := h.applyTokenSavers(body)
+	got, saved := h.applyTokenSavers(body)
 	if string(got) != string(body) {
 		t.Errorf("expected unchanged body when all token savers off")
+	}
+	if saved != 0 {
+		t.Errorf("expected 0 saved tokens, got %d", saved)
 	}
 }
 
@@ -59,9 +62,12 @@ func TestApplyTokenSavers_RTKOnly(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal body: %v", err)
 	}
-	got := h.applyTokenSavers(body)
+	got, saved := h.applyTokenSavers(body)
 	if string(got) == string(body) {
 		t.Errorf("expected RTK to modify body")
+	}
+	if saved <= 0 {
+		t.Errorf("expected positive compressionTokensSaved, got %d", saved)
 	}
 }
 
@@ -71,7 +77,7 @@ func TestApplyTokenSavers_CavemanInjects(t *testing.T) {
 	h.TokenSaver.SetCaveman(true)
 
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
-	got := h.applyTokenSavers(body)
+	got, _ := h.applyTokenSavers(body)
 	// Caveman prompt text should now appear in the system message.
 	if !strings.Contains(string(got), "terse") && !strings.Contains(string(got), "caveman") {
 		t.Errorf("expected caveman prompt injected, got %s", got)
@@ -84,7 +90,7 @@ func TestApplyTokenSavers_PonytailInjects(t *testing.T) {
 	h.TokenSaver.SetPonytail(true)
 
 	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
-	got := h.applyTokenSavers(body)
+	got, _ := h.applyTokenSavers(body)
 	if !strings.Contains(string(got), tokensaver.PonytailPrompt[:20]) {
 		t.Errorf("expected ponytail prompt injected, got %s", got)
 	}

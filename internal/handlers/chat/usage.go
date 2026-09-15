@@ -60,7 +60,7 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 
 	log.Info("usage", "logged", "provider", info.Provider, "model", info.Model, "prompt", usage.PromptTokens, "completion", usage.CompletionTokens, "cached", cachedTokens, "cache_creation", cacheCreationTokens, "ttft_ms", ttftMs, "latency_ms", latencyMs, "cost", cost)
 
-	tokensJSON := fmt.Sprintf(`{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d,"cached_tokens":%d,"cache_creation_input_tokens":%d}`, usage.PromptTokens, usage.CompletionTokens, totalTokens, cachedTokens, cacheCreationTokens)
+	tokensJSON := fmt.Sprintf(`{"prompt_tokens":%d,"completion_tokens":%d,"total_tokens":%d,"cached_tokens":%d,"cache_creation_input_tokens":%d,"compression_tokens":%d}`, usage.PromptTokens, usage.CompletionTokens, totalTokens, cachedTokens, cacheCreationTokens, info.CompressionTokens)
 	if err := h.Repo.InsertUsageHistory(info.Provider, info.Model, info.ConnectionID, maskAPIKey(info.APIKey), info.Endpoint, usage.PromptTokens, usage.CompletionTokens, cost, "success", totalTokens, metaJSON, tokensJSON); err != nil {
 		log.Error("usage", "insert failed", "error", err)
 	}
@@ -77,10 +77,10 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 		_, _ = rawDB.Exec(`
 			INSERT OR REPLACE INTO request_logs (
 				id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
-				status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, reasoning_tokens, estimated_cost
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, compression_tokens, reasoning_tokens, estimated_cost
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`, reqLogID, apiKeyID, info.Provider, info.Model, usage.PromptTokens, usage.CompletionTokens, totalTokens,
-			200, latencyMs, nowMillis, cachedTokens, cacheCreationTokens, usage.ReasoningTokens(), cost)
+			200, latencyMs, nowMillis, cachedTokens, cacheCreationTokens, info.CompressionTokens, usage.ReasoningTokens(), cost)
 	}
 
 	// Update token usage and cost on the client API key
@@ -102,7 +102,8 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 		"tokens": map[string]int{
 			"prompt_tokens": usage.PromptTokens, "completion_tokens": usage.CompletionTokens,
 			"cached_tokens": cachedTokens, "cache_creation_input_tokens": cacheCreationTokens,
-			"reasoning_tokens": usage.ReasoningTokens(),
+			"compression_tokens": info.CompressionTokens,
+			"reasoning_tokens":   usage.ReasoningTokens(),
 		},
 		"request":  map[string]any{"messages": reqMsgs},
 		"response": map[string]any{"content": respContent},

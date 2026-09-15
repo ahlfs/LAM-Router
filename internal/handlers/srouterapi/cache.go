@@ -13,6 +13,26 @@ import (
 func (h *SRouterHandler) HandleCacheGet(w http.ResponseWriter, r *http.Request) {
 	c := cache.GetGlobalCache()
 	stats := c.Stats()
+
+	// Query persistent efficiency telemetry from SQLite request_logs
+	var totalUpstreamCached, totalCompressionSaved int64
+	if h.db != nil {
+		_ = h.db.QueryRow(`
+SELECT 
+    COALESCE(SUM(cached_tokens), 0),
+    COALESCE(SUM(compression_tokens), 0)
+FROM request_logs
+`).Scan(&totalUpstreamCached, &totalCompressionSaved)
+	}
+
+	inMemorySaved, _ := stats["tokensSaved"].(int64)
+	totalSavedTokens := totalUpstreamCached + totalCompressionSaved + inMemorySaved
+
+	// Enrich response with hybrid telemetry fields while maintaining backward compatibility
+	stats["totalUpstreamCached"] = totalUpstreamCached
+	stats["totalCompressionSaved"] = totalCompressionSaved
+	stats["totalSavedTokens"] = totalSavedTokens
+
 	handlerutil.WriteJSON(w, http.StatusOK, stats)
 }
 

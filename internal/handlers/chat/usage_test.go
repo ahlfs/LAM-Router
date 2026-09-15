@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"9router/proxy/internal/constants"
+	"9router/proxy/internal/handlers/srouterapi"
 	"9router/proxy/internal/translator"
 )
 
@@ -263,4 +264,64 @@ func buildRequestBody(msgs []translator.OpenAIMessage) []byte {
 	}
 	b, _ := json.Marshal(req)
 	return b
+}
+
+func TestLogUsage_PersistsCompressionTokens(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	rawDB := h.Repo.RawDB()
+	if rawDB == nil {
+		t.Fatal("expected non-nil RawDB")
+	}
+
+	if err := srouterapi.InitSchema(rawDB); err != nil {
+		t.Fatalf("InitSchema failed: %v", err)
+	}
+
+	info := &UsageLogInfo{
+		Provider:          "deepseek",
+		Model:             "deepseek-chat",
+		ConnectionID:      "conn-test",
+		APIKey:            "sk-1234567890",
+		ClientAPIKey:      "client-key-1",
+		Endpoint:          "/v1/chat/completions",
+		CompressionTokens: 125,
+	}
+	usage := &translator.OpenAIUsage{
+		PromptTokens:     100,
+		CompletionTokens: 50,
+	}
+
+	h.LogUsage(info, usage, 250, []byte(`{"messages":[{"role":"user","content":"hi"}]}`), nil)
+
+	var compressionTokens int
+	err := rawDB.QueryRow(`
+		SELECT compression_tokens 
+		FROM request_logs 
+		WHERE provider_id = 'deepseek' AND model = 'deepseek-chat' 
+		ORDER BY created_at DESC LIMIT 1
+	`).Scan(&compressionTokens)
+	if err != nil {
+		t.Fatalf("failed to query request_logs: %v", err)
+	}
+
+	if compressionTokens != 125 {
+		t.Errorf("expected compression_tokens=125, got %d", compressionTokens)
+	}
+
+	var tokensJSON string
+	err = rawDB.QueryRow(`
+		SELECT tokens 
+		FROM usageHistory 
+		WHERE provider = 'deepseek' AND connectionId = 'conn-test' 
+		ORDER BY rowid DESC LIMIT 1
+	`).Scan(&tokensJSON)
+	if err != nil {
+		t.Fatalf("failed to query usageHistory: %v", err)
+	}
+
+	if !strings.Contains(tokensJSON, `"compression_tokens":125`) {
+		t.Errorf("expected tokens JSON to contain compression_tokens:125, got %s", tokensJSON)
+	}
 }

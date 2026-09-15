@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS request_logs (
     created_at INTEGER NOT NULL,
     cached_tokens INTEGER NOT NULL DEFAULT 0,
     cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    compression_tokens INTEGER NOT NULL DEFAULT 0,
     reasoning_tokens INTEGER NOT NULL DEFAULT 0,
     estimated_cost REAL NOT NULL DEFAULT 0,
     fallback_occurred INTEGER NOT NULL DEFAULT 0,
@@ -141,6 +142,7 @@ CREATE TABLE IF NOT EXISTS disabled_models (
 		// Migration for existing tables
 		_, _ = dbConn.Exec(`ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 999999`)
 		_, _ = dbConn.Exec(`ALTER TABLE providerConnections ADD COLUMN priority INTEGER DEFAULT 999999`)
+		_, _ = dbConn.Exec(`ALTER TABLE request_logs ADD COLUMN compression_tokens INTEGER DEFAULT 0`)
 	}
 	return err
 }
@@ -243,6 +245,8 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/keys/{id}", func(w http.ResponseWriter, req *http.Request) {
 		if req.Method == http.MethodDelete {
 			h.HandleKeyDelete(w, req)
+		} else if req.Method == http.MethodPut || req.Method == http.MethodPatch {
+			h.HandleKeyUpdate(w, req)
 		} else {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}

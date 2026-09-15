@@ -36,12 +36,13 @@ type ConnectionData struct {
 
 // UsageLogInfo holds request context needed to log a usage record.
 type UsageLogInfo struct {
-	Provider     string
-	Model        string
-	ConnectionID string
-	APIKey       string
-	ClientAPIKey string
-	Endpoint     string
+	Provider          string
+	Model             string
+	ConnectionID      string
+	APIKey            string
+	ClientAPIKey      string
+	Endpoint          string
+	CompressionTokens int
 }
 
 // ResponseCaptureMax is the maximum response content retained for token

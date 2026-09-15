@@ -75,16 +75,31 @@ FROM request_logs ORDER BY created_at DESC LIMIT 100
 // GET /v1/logs/stats
 func (h *SRouterHandler) HandleLogsStats(w http.ResponseWriter, r *http.Request) {
 	var totalRequests, totalTokens, totalInputTokens, totalOutputTokens int
+	var totalCachedTokens, totalCompressionTokens int
 	var totalCost float64
 	var avgLatency float64
 
-	_ = h.db.QueryRow("SELECT COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(estimated_cost), 0), COALESCE(AVG(latency_ms), 0) FROM request_logs").Scan(
-		&totalRequests, &totalTokens, &totalInputTokens, &totalOutputTokens, &totalCost, &avgLatency,
+	_ = h.db.QueryRow(`
+SELECT 
+    COUNT(*), 
+    COALESCE(SUM(total_tokens), 0), 
+    COALESCE(SUM(prompt_tokens), 0), 
+    COALESCE(SUM(completion_tokens), 0), 
+    COALESCE(SUM(cached_tokens), 0),
+    COALESCE(SUM(compression_tokens), 0),
+    COALESCE(SUM(estimated_cost), 0), 
+    COALESCE(AVG(latency_ms), 0) 
+FROM request_logs
+`).Scan(
+		&totalRequests, &totalTokens, &totalInputTokens, &totalOutputTokens,
+		&totalCachedTokens, &totalCompressionTokens, &totalCost, &avgLatency,
 	)
+
+	totalSavedTokens := totalCachedTokens + totalCompressionTokens
 
 	// Fetch byModel breakdown
 	rows, err := h.db.Query(`
-SELECT model, COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(estimated_cost), 0)
+SELECT model, COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0)
 FROM request_logs
 GROUP BY model
 ORDER BY COUNT(*) DESC
@@ -95,16 +110,18 @@ LIMIT 20
 		defer rows.Close()
 		for rows.Next() {
 			var model string
-			var reqCount, inTok, outTok, cachedTok int
+			var reqCount, inTok, outTok, cachedTok, compTok int
 			var estCost float64
-			if err := rows.Scan(&model, &reqCount, &inTok, &outTok, &cachedTok, &estCost); err == nil {
+			if err := rows.Scan(&model, &reqCount, &inTok, &outTok, &cachedTok, &compTok, &estCost); err == nil {
 				byModel = append(byModel, map[string]any{
-					"model":             model,
-					"totalRequests":     reqCount,
-					"totalInputTokens":  inTok,
-					"totalOutputTokens": outTok,
-					"totalCachedTokens": cachedTok,
-					"estCost":           estCost,
+					"model":                  model,
+					"totalRequests":          reqCount,
+					"totalInputTokens":       inTok,
+					"totalOutputTokens":      outTok,
+					"totalCachedTokens":      cachedTok,
+					"totalCompressionTokens": compTok,
+					"totalSavedTokens":       cachedTok + compTok,
+					"estCost":                estCost,
 				})
 			}
 		}
@@ -114,16 +131,19 @@ LIMIT 20
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-		"totalRequests":     totalRequests,
-		"totalTokens":       totalTokens,
-		"totalInputTokens":  totalInputTokens,
-		"totalOutputTokens": totalOutputTokens,
-		"totalCost":         totalCost,
-		"costLabel":         fmt.Sprintf("$%.2f", totalCost),
-		"estimated":         true,
-		"avgLatency":        avgLatency,
-		"activeStreams":     0,
-		"byModel":           byModel,
+		"totalRequests":          totalRequests,
+		"totalTokens":            totalTokens,
+		"totalInputTokens":       totalInputTokens,
+		"totalOutputTokens":      totalOutputTokens,
+		"totalCachedTokens":      totalCachedTokens,
+		"totalCompressionTokens": totalCompressionTokens,
+		"totalSavedTokens":       totalSavedTokens,
+		"totalCost":              totalCost,
+		"costLabel":              fmt.Sprintf("$%.2f", totalCost),
+		"estimated":              true,
+		"avgLatency":             avgLatency,
+		"activeStreams":          0,
+		"byModel":                byModel,
 	})
 }
 

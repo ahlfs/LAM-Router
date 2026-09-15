@@ -159,7 +159,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 		}
 	}
 
-	pipedBody := h.applyTokenSavers(body)
+	pipedBody, compressionSaved := h.applyTokenSavers(body)
 	start := time.Now()
 	metrics := &streamMetrics{}
 	var fwdErr error
@@ -259,12 +259,13 @@ func (h *ChatHandler) tryForwardWithConnection(
 		}
 
 		logInfo := &UsageLogInfo{
-			Provider:     provider,
-			Model:        model,
-			ConnectionID: connectionID,
-			APIKey:       apiKey,
-			ClientAPIKey: clientKeyStr,
-			Endpoint:     endpoint,
+			Provider:          provider,
+			Model:             model,
+			ConnectionID:      connectionID,
+			APIKey:            apiKey,
+			ClientAPIKey:      clientKeyStr,
+			Endpoint:          endpoint,
+			CompressionTokens: compressionSaved,
 		}
 		h.logUsage(logInfo, usage, latencyMs, body, metrics)
 
@@ -294,8 +295,9 @@ func (h *ChatHandler) tryForwardWithConnection(
 }
 
 // applyTokenSavers runs RTK compression and prompt injection on the request body.
+// Returns the processed body and the estimated tokens saved from compression.
 // false from compress/inject means nothing changed (or unparseable) — keep original, not a failure.
-func (h *ChatHandler) applyTokenSavers(body []byte) []byte {
+func (h *ChatHandler) applyTokenSavers(body []byte) ([]byte, int) {
 	// Prompt-injection guard: tag (never block) flagged user content. Early
 	// detection here means operators can see abuse before it reaches upstream.
 	// Toggle via settings.injectionGuardEnabled (off bypasses the scan).
@@ -305,8 +307,13 @@ func (h *ChatHandler) applyTokenSavers(body []byte) []byte {
 		}
 	}
 	out := body
+	compressionTokensSaved := 0
 	if h.TokenSaver.RTKEnabled() {
+		origLen := len(out)
 		if next, did := tokensaver.CompressMessages(out); did {
+			if len(next) < origLen {
+				compressionTokensSaved = (origLen - len(next)) / 4
+			}
 			out = next
 		}
 	}
@@ -322,7 +329,7 @@ func (h *ChatHandler) applyTokenSavers(body []byte) []byte {
 			out = next
 		}
 	}
-	return out
+	return out, compressionTokensSaved
 }
 
 // extractErrorText attempts to extract a human-readable error message from an upstream error JSON body.
