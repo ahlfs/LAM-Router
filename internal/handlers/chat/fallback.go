@@ -86,22 +86,32 @@ func (h *ChatHandler) handleAccountFallback(
 			lastErr = err
 		}
 		var ue *upstreamError
-		if errors.As(lastErr, &ue) && providers.RetryableStatusCodes[ue.StatusCode] {
-			// Extract error text from upstream body for classification
-			errorText := extractErrorText(ue.Body)
-			// Get current backoff level from this connection
-			currentBackoffLevel := h.Repo.GetConnectionBackoffLevel(connObj.ID)
-			// Classify error to get dynamic cooldown
-			classification := providers.ClassifyError(ue.StatusCode, errorText, currentBackoffLevel)
-			cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
-			errMsg := errorText
-			if errMsg == "" {
-				errMsg = fmt.Sprintf("%d upstream error", ue.StatusCode)
+		if errors.As(lastErr, &ue) {
+			// Demote the failed connection to the bottom of the priority queue
+			_ = h.Repo.DemoteConnectionToLowest(c.ID, provider)
+			log.Warn("fallback", "demoted failed connection to lowest priority", "conn", c.ID, "provider", provider, "status", ue.StatusCode)
+
+			if providers.RetryableStatusCodes[ue.StatusCode] {
+				// Extract error text from upstream body for classification
+				errorText := extractErrorText(ue.Body)
+				// Get current backoff level from this connection
+				currentBackoffLevel := h.Repo.GetConnectionBackoffLevel(connObj.ID)
+				// Classify error to get dynamic cooldown
+				classification := providers.ClassifyError(ue.StatusCode, errorText, currentBackoffLevel)
+				cooldownSec := int((classification.CooldownMs + 999) / 1000) // ceil to seconds
+				errMsg := errorText
+				if errMsg == "" {
+					errMsg = fmt.Sprintf("%d upstream error", ue.StatusCode)
+				}
+				h.Repo.LockConnectionModel(connObj.ID, model, cooldownSec, classification.NewBackoffLevel)
+				log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "status", ue.StatusCode, "cooldown_s", cooldownSec)
+				excludeIDs = append(excludeIDs, c.ID)
+				continue
 			}
-			h.Repo.LockConnectionModel(connObj.ID, model, cooldownSec, classification.NewBackoffLevel)
-			log.Warn("fallback", "connection locked", "conn", connObj.ID, "provider", provider, "model", model, "status", ue.StatusCode, "cooldown_s", cooldownSec)
-			excludeIDs = append(excludeIDs, c.ID)
-			continue
+		} else if lastErr != nil {
+			// Non-upstream network/timeout failure: also demote connection
+			_ = h.Repo.DemoteConnectionToLowest(c.ID, provider)
+			log.Warn("fallback", "demoted connection due to error", "conn", c.ID, "provider", provider, "error", lastErr)
 		}
 		return lastErr
 	}

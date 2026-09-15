@@ -35,6 +35,30 @@ func (r *Repo) LockConnectionModel(connID, model string, durationSec int, backof
 	return nil
 }
 
+// DemoteConnectionToLowest demotes a failed connection to the lowest priority (highest number)
+// for its provider across both providers and providerConnections tables.
+func (r *Repo) DemoteConnectionToLowest(connID, provider string) error {
+	var maxPriority int
+	// Find current max priority for this provider
+	err := r.db.QueryRow(`
+		SELECT COALESCE(MAX(p), 0) FROM (
+			SELECT priority as p FROM providers WHERE LOWER(provider_id) = LOWER(?)
+			UNION ALL
+			SELECT priority as p FROM providerConnections WHERE LOWER(provider) = LOWER(?)
+		) WHERE p < 999999
+	`, provider, provider).Scan(&maxPriority)
+	if err != nil {
+		maxPriority = 0
+	}
+
+	newPriority := maxPriority + 1
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	_, _ = r.db.Exec(`UPDATE providers SET priority = ? WHERE id = ? OR provider_id = ?`, newPriority, connID, connID)
+	_, _ = r.db.Exec(`UPDATE providerConnections SET priority = ?, updatedAt = ? WHERE id = ?`, newPriority, now, connID)
+	return nil
+}
+
 // IsConnectionModelLocked checks whether the given connection has an active
 // modelLock_<model> field in its data JSON blob. Returns true when the
 // timestamp is in the future.

@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS providers (
     last_refreshed_at INTEGER,
     custom_headers TEXT,
     provider_specific_data TEXT,
+    priority INTEGER DEFAULT 999999,
     enabled INTEGER NOT NULL DEFAULT 1,
     created_at INTEGER NOT NULL
 );
@@ -136,6 +137,11 @@ CREATE TABLE IF NOT EXISTS disabled_models (
 );
 `
 	_, err := dbConn.Exec(schema)
+	if err == nil {
+		// Migration for existing tables
+		_, _ = dbConn.Exec(`ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 999999`)
+		_, _ = dbConn.Exec(`ALTER TABLE providerConnections ADD COLUMN priority INTEGER DEFAULT 999999`)
+	}
 	return err
 }
 
@@ -221,6 +227,7 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/providers/{providerId}/models/toggle", h.HandleProviderModelToggle)
 	r.HandleFunc("/v1/providers/{providerId}/models/{modelId}/toggle", h.HandleProviderModelToggle)
 	r.HandleFunc("/v1/providers/{providerId}/models/{modelId}", h.HandleCustomModelDelete)
+	r.HandleFunc("/v1/providers/{providerId}/reorder", h.HandleProviderReorderConnections)
 
 	// Keys Domain
 	r.HandleFunc("/v1/keys", func(w http.ResponseWriter, req *http.Request) {

@@ -25,8 +25,12 @@ build-ui:
 ## install — compile and install globally into $GOPATH/bin or /usr/local/bin
 install: build
 	@mkdir -p $(HOME)/.local/bin
-	@cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME)
-	@cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/lamrouter 2>/dev/null || true
+	@if [ "$$(readlink -f $(HOME)/.local/bin/$(BINARY_NAME) 2>/dev/null)" != "$$(readlink -f bin/$(BINARY_NAME))" ]; then \
+		cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME); \
+	fi
+	@if [ "$$(readlink -f $(HOME)/.local/bin/lamrouter 2>/dev/null)" != "$$(readlink -f bin/$(BINARY_NAME))" ]; then \
+		cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/lamrouter 2>/dev/null || true; \
+	fi
 	@echo "✅ Installed globally! You can now run 'lam-router' or 'lamrouter' anywhere in your terminal."
 
 ## run — start proxy (PORT=20128)

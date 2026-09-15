@@ -23,20 +23,26 @@
             (function () {
                 try {
                     var stored = localStorage.getItem("lamrouter-theme") || localStorage.getItem("srouter-theme");
-                    var theme =
-                        stored === "light" || stored === "dark"
-                            ? stored
-                            : window.matchMedia("(prefers-color-scheme: light)").matches
-                              ? "light"
-                              : "dark";
+                    var lightThemes = [
+                        "dark-minimalist-light", "claude-nous-light", "matrix-light",
+                        "claude-official-light", "claude-classic-light", "claude-slate-light",
+                        "scifi-light", "dracula-light", "discord-nitro-light",
+                        "arctic-light", "synthwave-light", "biolab-light",
+                        "monokai-light", "tokyonight-light", "crimson-light",
+                        "deusex-light", "highcontrast-light", "light"
+                    ];
+                    var theme = stored || "dark-minimalist";
+                    var isLight = lightThemes.indexOf(theme) !== -1;
                     var root = document.documentElement;
-                    root.classList.toggle("dark", theme === "dark");
-                    root.style.colorScheme = theme;
+                    root.setAttribute("data-theme", theme);
+                    root.classList.toggle("dark", !isLight);
+                    root.classList.toggle("light", isLight);
+                    root.style.colorScheme = isLight ? "light" : "dark";
                 } catch (e) {}
             })();
         </script>
-      <script type="module" crossorigin src="/assets/index-Dyauu6tO.js"></script>
-      <link rel="stylesheet" crossorigin href="/assets/index-Cv4baQ7j.css">
+      <script type="module" crossorigin src="/assets/index-BgJxMGSK.js"></script>
+      <link rel="stylesheet" crossorigin href="/assets/index-BbPKP795.css">
     </head>
     <body>
         <div id="root"></div>

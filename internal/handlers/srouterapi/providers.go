@@ -1,6 +1,7 @@
 package srouterapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -29,6 +30,7 @@ type ProviderConfig struct {
 	LastRefreshedAt      *int64         `json:"lastRefreshedAt,omitempty"`
 	CustomHeaders        map[string]any `json:"customHeaders,omitempty"`
 	ProviderSpecificData map[string]any `json:"providerSpecificData,omitempty"`
+	Priority             *int           `json:"priority,omitempty"`
 	Enabled              bool           `json:"enabled"`
 	CreatedAt            int64          `json:"createdAt"`
 }
@@ -929,7 +931,7 @@ func strPtr(s string) *string {
 
 // GetAllProviders from DB
 func (h *SRouterHandler) getAllProviders() ([]*ProviderConfig, error) {
-	rows, err := h.db.Query(`SELECT id, provider_id, name, category, protocol, base_url, api_key, access_token, refresh_token, account_id, organization_id, token_expires_at, last_refreshed_at, custom_headers, provider_specific_data, enabled, created_at FROM providers ORDER BY created_at DESC`)
+	rows, err := h.db.Query(`SELECT id, provider_id, name, category, protocol, base_url, api_key, access_token, refresh_token, account_id, organization_id, token_expires_at, last_refreshed_at, custom_headers, provider_specific_data, priority, enabled, created_at FROM providers ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, created_at ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -939,16 +941,21 @@ func (h *SRouterHandler) getAllProviders() ([]*ProviderConfig, error) {
 	for rows.Next() {
 		var p ProviderConfig
 		var enabledInt int
+		var priorityVal sql.NullInt64
 		var customHeadersStr, psdStr *string
 		err := rows.Scan(
 			&p.ID, &p.ProviderID, &p.Name, &p.Category, &p.Protocol,
 			&p.BaseURL, &p.APIKey, &p.AccessToken, &p.RefreshToken,
 			&p.AccountID, &p.OrganizationID, &p.TokenExpiresAt,
 			&p.LastRefreshedAt, &customHeadersStr, &psdStr,
-			&enabledInt, &p.CreatedAt,
+			&priorityVal, &enabledInt, &p.CreatedAt,
 		)
 		if err != nil {
 			continue
+		}
+		if priorityVal.Valid {
+			prio := int(priorityVal.Int64)
+			p.Priority = &prio
 		}
 		p.Enabled = enabledInt == 1
 		if customHeadersStr != nil && *customHeadersStr != "" {
@@ -2001,6 +2008,42 @@ func (h *SRouterHandler) HandleProviderLegacyModelToggle(w http.ResponseWriter, 
 		"providerId": providerID,
 		"modelId":    body.ModelID,
 		"enabled":    body.Enabled,
+	})
+}
+
+// POST /v1/providers/{providerId}/reorder
+func (h *SRouterHandler) HandleProviderReorderConnections(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.ToLower(chi.URLParam(r, "providerId"))
+	var body struct {
+		ConnectionIDs []string `json:"connectionIds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.ConnectionIDs) == 0 {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid connectionIds array")
+		return
+	}
+
+	tx, err := h.db.Begin()
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to start database transaction")
+		return
+	}
+	defer tx.Rollback()
+
+	for idx, connID := range body.ConnectionIDs {
+		priority := idx + 1
+		_, _ = tx.Exec(`UPDATE providers SET priority = ? WHERE id = ?`, priority, connID)
+		_, _ = tx.Exec(`UPDATE providerConnections SET priority = ?, updatedAt = datetime('now') WHERE id = ?`, priority, connID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to commit connection priorities")
+		return
+	}
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":       true,
+		"providerId":    providerID,
+		"connectionIds": body.ConnectionIDs,
 	})
 }
 
