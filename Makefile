@@ -24,14 +24,24 @@ build-ui:
 
 ## install — compile and install globally into $GOPATH/bin or /usr/local/bin
 install: build
-	@mkdir -p $(HOME)/.local/bin
-	@if [ "$$(readlink -f $(HOME)/.local/bin/$(BINARY_NAME) 2>/dev/null)" != "$$(readlink -f bin/$(BINARY_NAME))" ]; then \
+	@if [ -w /usr/local/bin ]; then \
+		cp -f bin/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME); \
+		cp -f bin/$(BINARY_NAME) /usr/local/bin/lamrouter 2>/dev/null || true; \
+		echo "✅ Installed globally to /usr/local/bin! You can now run 'lam-router' or 'lamrouter' anywhere."; \
+	elif command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then \
+		sudo cp -f bin/$(BINARY_NAME) /usr/local/bin/$(BINARY_NAME); \
+		sudo cp -f bin/$(BINARY_NAME) /usr/local/bin/lamrouter 2>/dev/null || true; \
+		echo "✅ Installed globally to /usr/local/bin via sudo! You can now run 'lam-router' or 'lamrouter' anywhere."; \
+	else \
+		mkdir -p $(HOME)/.local/bin; \
 		cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/$(BINARY_NAME); \
-	fi
-	@if [ "$$(readlink -f $(HOME)/.local/bin/lamrouter 2>/dev/null)" != "$$(readlink -f bin/$(BINARY_NAME))" ]; then \
 		cp -f bin/$(BINARY_NAME) $(HOME)/.local/bin/lamrouter 2>/dev/null || true; \
+		if ! echo "$$PATH" | grep -q "$(HOME)/.local/bin"; then \
+			echo 'export PATH="$$HOME/.local/bin:$$PATH"' >> $(HOME)/.bashrc; \
+			echo "⚠️  Added ~/.local/bin to ~/.bashrc. Please run 'source ~/.bashrc' or reload your shell."; \
+		fi; \
+		echo "✅ Installed to ~/.local/bin! You can now run 'lam-router' or 'lamrouter'."; \
 	fi
-	@echo "✅ Installed globally! You can now run 'lam-router' or 'lamrouter' anywhere in your terminal."
 
 ## run — start proxy (PORT=20128)
 run: build
