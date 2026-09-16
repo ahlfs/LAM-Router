@@ -62,15 +62,19 @@ Lightweight, ultra-high-throughput Autonomous AI Routing Gateway and Management 
 
 ## 🚀 Setup & Installation Guide
 
-### Prerequisites
-* **Go** >= 1.22 (for building backend)
-* **build-essential / make** (for running Makefile)
-* **Node.js** >= 20 & **pnpm** (only needed if modifying frontend UI)
-* **Linux / macOS / Windows**
+### 📋 Prerequisites & Requirements
+
+Before installing, ensure your environment meets the following requirements:
+
+| Tool / Dependency | Required? | Min Version | Purpose | Installation / Download |
+|---|---|---|---|---|
+| **[Go (Golang)](https://go.dev/doc/install)** | ✅ Required | 1.22+ | Compiles the backend router binary | [Go Official Install Guide](https://go.dev/doc/install) |
+| **[Make / Build Tools](https://www.gnu.org/software/make/)** | ✅ Required | latest | Runs compilation and installation tasks | Debian/Ubuntu: `sudo apt install build-essential`<br>macOS: `xcode-select --install`<br>Windows: via Chocolatey / Scoop / WSL |
+| **[PM2](https://pm2.keymetrics.io/)** | ⭐ Optional | latest | 24/7 background process manager (survives reboots) | `npm install -g pm2` ([PM2 Quickstart](https://pm2.keymetrics.io/docs/usage/quick-start/)) |
+| **[Node.js](https://nodejs.org/) & [pnpm](https://pnpm.io/)** | ⚙️ Dev Only | Node 20+, pnpm 9+ | **Only** needed if editing or rebuilding the frontend UI | [Node.js Download](https://nodejs.org/) & [pnpm Install](https://pnpm.io/installation) |
 
 > [!TIP]
-> **For Fresh VPS (Ubuntu / Debian):**
-> Install Go and build tools in one command before building:
+> **One-Liner for Debian / Ubuntu VPS:**
 > ```bash
 > sudo apt update && sudo apt install -y golang-go build-essential
 > ```
