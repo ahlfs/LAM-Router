@@ -277,6 +277,16 @@ func (h *ChatHandler) getClientForConnection(connData *ConnectionData) *http.Cli
 		}
 	}
 
+	// 3. Fallback to global outbound_proxy setting from system_settings
+	if proxyURLStr == "" {
+		var globalProxy string
+		_ = h.Repo.RawDB().QueryRow("SELECT value FROM system_settings WHERE key = 'outbound_proxy'").Scan(&globalProxy)
+		if strings.TrimSpace(globalProxy) != "" {
+			proxyURLStr = strings.TrimSpace(globalProxy)
+			proxyType = "http"
+		}
+	}
+
 	if proxyURLStr == "" {
 		return h.Client
 	}

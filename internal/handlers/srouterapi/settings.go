@@ -31,8 +31,12 @@ func (h *SRouterHandler) HandleSettingsGet(w http.ResponseWriter, r *http.Reques
 		requireAPIKey = false
 	}
 
+	var outboundProxy string
+	_ = h.db.QueryRow("SELECT value FROM system_settings WHERE key = 'outbound_proxy'").Scan(&outboundProxy)
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"requireApiKey": requireAPIKey,
+		"outboundProxy": outboundProxy,
 		"version":       "1.0.0",
 		"name":          "LAM-Router",
 	})
@@ -41,7 +45,8 @@ func (h *SRouterHandler) HandleSettingsGet(w http.ResponseWriter, r *http.Reques
 // POST/PATCH /v1/settings
 func (h *SRouterHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		RequireAPIKey *bool `json:"requireApiKey"`
+		RequireAPIKey *bool   `json:"requireApiKey"`
+		OutboundProxy *string `json:"outboundProxy"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid settings payload")
@@ -54,6 +59,11 @@ func (h *SRouterHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.Req
 			val = "false"
 		}
 		_, _ = h.db.Exec("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('require_api_key', ?)", val)
+	}
+
+	if body.OutboundProxy != nil {
+		proxyVal := strings.TrimSpace(*body.OutboundProxy)
+		_, _ = h.db.Exec("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('outbound_proxy', ?)", proxyVal)
 	}
 
 	h.HandleSettingsGet(w, r)
