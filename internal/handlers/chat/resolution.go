@@ -28,7 +28,9 @@ func NewChatHandler(repo *db.Repo, ts ...*shared.TokenSaverConfig) *ChatHandler 
 	// ResponseHeaderTimeout bounds how long we wait for the upstream to
 	// start responding — closing the "accept then go silent" gap without
 	// killing a stream that has already begun.
+	// We also honor standard environment proxy variables (HTTP_PROXY, HTTPS_PROXY, ALL_PROXY, NO_PROXY).
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = http.ProxyFromEnvironment
 	transport.ResponseHeaderTimeout = 2 * time.Minute
 	return &ChatHandler{
 		Repo: repo,
