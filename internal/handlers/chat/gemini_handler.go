@@ -29,7 +29,11 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	isStream bool,
 	translateResponse bool,
 	metrics *streamMetrics,
+	client *http.Client,
 ) error {
+	if client == nil {
+		client = h.Client
+	}
 	// Extract model
 	var reqMeta struct {
 		Model string `json:"model"`
@@ -57,7 +61,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 	}
 
 	if (provider == "antigravity" || provider == "gemini-cli") && projectID == "" && !projectProbeCached(connectionID) {
-		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, h.Client, apiKey)
+		pid, authFailed, noProject := fetchAntigravityProjectID(ctx, client, apiKey)
 		switch {
 		case pid != "":
 			projectID = pid
@@ -73,7 +77,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 				if pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
-				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, h.Client, apiKey); pid2 != "" {
+				} else if pid2, _, _ := fetchAntigravityProjectID(ctx, client, apiKey); pid2 != "" {
 					projectID = pid2
 					h.storeAntigravityProjectID(connectionID, pid2)
 				}
@@ -98,7 +102,7 @@ func (h *ChatHandler) forwardGeminiNativeRequest(
 
 	log.Info("gemini_exec", "provider", provider, "modelName", modelName, "projectID", projectID)
 
-	resp, err := proxy.ForwardGemini(ctx, h.Client, cfg, apiKey, string(body), isStream, projectID, modelName)
+	resp, err := proxy.ForwardGemini(ctx, client, cfg, apiKey, string(body), isStream, projectID, modelName)
 	if err != nil {
 		return fmt.Errorf("ForwardGemini (%s/%s): %w", provider, modelName, err)
 	}
