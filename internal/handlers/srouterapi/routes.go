@@ -17,6 +17,19 @@ import (
 // InitSchema ensures the SRouter tables exist in the SQLite database.
 func InitSchema(dbConn *sql.DB) error {
 	schema := `
+CREATE TABLE IF NOT EXISTS providerConnections (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    authType TEXT,
+    name TEXT,
+    email TEXT,
+    priority INTEGER DEFAULT 999999,
+    isActive INTEGER DEFAULT 1,
+    data TEXT,
+    createdAt TEXT,
+    updatedAt TEXT
+);
+
 CREATE TABLE IF NOT EXISTS admin_account (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     password_hash TEXT NOT NULL,
