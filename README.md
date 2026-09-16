@@ -64,8 +64,16 @@ Lightweight, ultra-high-throughput Autonomous AI Routing Gateway and Management 
 
 ### Prerequisites
 * **Go** >= 1.22 (for building backend)
-* **Node.js** >= 20 & **pnpm** (for building frontend)
+* **build-essential / make** (for running Makefile)
+* **Node.js** >= 20 & **pnpm** (only needed if modifying frontend UI)
 * **Linux / macOS / Windows**
+
+> [!TIP]
+> **For Fresh VPS (Ubuntu / Debian):**
+> Install Go and build tools in one command before building:
+> ```bash
+> sudo apt update && sudo apt install -y golang-go build-essential
+> ```
 
 ---
 
@@ -110,13 +118,13 @@ After=network.target
 
 [Service]
 Type=simple
-User=ahlfs
-WorkingDirectory=/home/ahlfs/workspace/LAM-Router
+User=<your_username>
+WorkingDirectory=/home/<your_username>/workspace/LAM-Router
 ExecStart=/usr/local/bin/lam-router
 Restart=always
 RestartSec=5
 Environment=PORT=9898
-Environment=DATA_DIR=/home/ahlfs/.lam-router
+Environment=DATA_DIR=/home/<your_username>/.lam-router
 
 [Install]
 WantedBy=multi-user.target
