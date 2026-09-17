@@ -45,15 +45,20 @@ func (r *Repo) VerifyAdminSession(token string) bool {
 
 // ValidateApiKey checks if the given API key exists and is active.
 func (r *Repo) ValidateApiKey(key string) (bool, error) {
-	var active int
-	err := r.db.QueryRow("SELECT isActive FROM apiKeys WHERE key = ? LIMIT 1", key).Scan(&active)
+	var enabled int
+	err := r.db.QueryRow("SELECT enabled FROM api_keys WHERE key = ? LIMIT 1", key).Scan(&enabled)
+	if err == nil {
+		return enabled == 1, nil
+	}
+
+	err = r.db.QueryRow("SELECT enabled FROM apiKeys WHERE key = ? LIMIT 1", key).Scan(&enabled)
 	if err == sql.ErrNoRows {
 		return false, nil
 	}
 	if err != nil {
 		return false, err
 	}
-	return active == 1, nil
+	return enabled == 1, nil
 }
 
 // GetApiKeyByKey retrieves detailed APIKey information by key, checking api_keys table first then apiKeys table.
@@ -62,11 +67,11 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 
 	// 1. Try querying the primary api_keys table (used by LAM-Router Dashboard)
 	var enabled int
-	var quotaLimit, usageTokens sql.NullInt64
-	var creditLimit, usageCost sql.NullFloat64
-	var rateLimit sql.NullInt64
-	var createdAt int64
 	var name string
+	var rateLimit, quotaLimit sql.NullInt64
+	var usageTokens sql.NullInt64
+	var creditLimit, usageCost sql.NullFloat64
+	var createdAt int64
 
 	err := r.db.QueryRow(
 		"SELECT id, key, name, enabled, rate_limit, quota_limit, usage_tokens, credit_limit, usage_cost, created_at FROM api_keys WHERE key = ? LIMIT 1",
@@ -96,10 +101,12 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	}
 
 	// 2. Fallback to legacy apiKeys table
+	var enabledLegacy int
 	err = r.db.QueryRow(
-		"SELECT id, key, name, isActive, createdAt FROM apiKeys WHERE key = ? LIMIT 1",
+		"SELECT id, key, name, enabled, createdAt FROM apiKeys WHERE key = ? LIMIT 1",
 		key,
-	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &apiKey.IsActive, &apiKey.CreatedAt)
+	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &enabledLegacy, &apiKey.CreatedAt)
+	apiKey.IsActive = enabledLegacy
 
 	if err == sql.ErrNoRows {
 		return nil, nil
