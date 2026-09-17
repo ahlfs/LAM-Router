@@ -12,9 +12,20 @@ import (
 	"time"
 )
 
-// vars (not consts) so tests can point them at a local server.
-var loadCodeAssistURL = "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist"
-var onboardUserURL = "https://daily-cloudcode-pa.googleapis.com/v1internal:onboardUser"
+func getAntigravityBaseURL() string {
+	if val := os.Getenv("ANTIGRAVITY_BASE_URL"); strings.TrimSpace(val) != "" {
+		return strings.TrimRight(strings.TrimSpace(val), "/")
+	}
+	return "https://daily-cloudcode-pa.googleapis.com"
+}
+
+func getLoadCodeAssistURL() string {
+	return getAntigravityBaseURL() + "/v1internal:loadCodeAssist"
+}
+
+func getOnboardUserURL() string {
+	return getAntigravityBaseURL() + "/v1internal:onboardUser"
+}
 
 var lcaMetadata = map[string]any{
 	"ideType":    9, // ANTIGRAVITY
@@ -72,7 +83,7 @@ func fetchAntigravityProjectID(ctx context.Context, client *http.Client, accessT
 		log.Error("antigravity", "loadCodeAssist marshal failed", "error", err)
 		return "", false, false
 	}
-	req, err := http.NewRequestWithContext(ctx, "POST", loadCodeAssistURL, bytes.NewReader(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", getLoadCodeAssistURL(), bytes.NewReader(payload))
 	if err != nil {
 		log.Error("antigravity", "loadCodeAssist request failed", "error", err)
 		return "", false, false
@@ -154,7 +165,7 @@ func onboardAntigravityUser(ctx context.Context, client *http.Client, accessToke
 			time.Sleep(antigravityProbeDelay)
 			continue
 		}
-		req, err := http.NewRequestWithContext(ctx, "POST", onboardUserURL, bytes.NewReader(payload))
+		req, err := http.NewRequestWithContext(ctx, "POST", getOnboardUserURL(), bytes.NewReader(payload))
 		if err != nil {
 			log.Error("antigravity", "onboardUser request failed", "error", err)
 			time.Sleep(antigravityProbeDelay)

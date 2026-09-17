@@ -105,7 +105,7 @@ var KnownProviders = map[string]ProviderConfig{
 		Format:     "gemini-openai",
 	},
 	"antigravity": {
-		BaseURL:    "https://daily-cloudcode-pa.googleapis.com",
+		BaseURL:    envOr("ANTIGRAVITY_BASE_URL", "https://daily-cloudcode-pa.googleapis.com"),
 		AuthHeader: "Authorization",
 		AuthScheme: "bearer",
 		Format:     "gemini-native",
