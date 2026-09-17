@@ -31,7 +31,19 @@ func (p *ProviderConfig) IsGeminiNative() bool { return p.Format == "gemini-nati
 // native one (e.g. the "gemini" provider at /v1beta/openai/chat/completions).
 func (p *ProviderConfig) IsGeminiOpenAICompat() bool { return p.Format == "gemini-openai" }
 
-// KnownProviders maps provider IDs to their upstream configuration.
+// GetKnownProviderConfig returns the provider config, dynamically checking environment overrides (e.g. ANTIGRAVITY_BASE_URL)
+func GetKnownProviderConfig(provider string) (ProviderConfig, bool) {
+	cfg, ok := KnownProviders[provider]
+	if !ok {
+		return cfg, false
+	}
+	if provider == "antigravity" {
+		if val := os.Getenv("ANTIGRAVITY_BASE_URL"); strings.TrimSpace(val) != "" {
+			cfg.BaseURL = strings.TrimRight(strings.TrimSpace(val), "/")
+		}
+	}
+	return cfg, true
+}
 var KnownProviders = map[string]ProviderConfig{
 	"framer": {
 		BaseURL:    "https://api.framer.com/ai/v3/chat/",
