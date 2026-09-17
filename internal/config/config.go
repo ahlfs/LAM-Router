@@ -82,6 +82,11 @@ func ResolveDataDir() string {
 // LoadConfig loads the configuration from environment variables and platform defaults.
 func LoadConfig() *Config {
 	loadDotenv(".env")
+	if homeDir, err := os.UserHomeDir(); err == nil {
+		loadDotenv(filepath.Join(homeDir, "LAM-Router", ".env"))
+		loadDotenv(filepath.Join(homeDir, ".lam-router", ".env"))
+		loadDotenv(filepath.Join(homeDir, ".hermes", ".env"))
+	}
 	portStr := os.Getenv("PORT")
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port <= 0 {
