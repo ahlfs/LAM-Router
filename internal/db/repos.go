@@ -102,11 +102,15 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 
 	// 2. Fallback to legacy apiKeys table
 	var enabledLegacy int
+	var caLegacy sql.NullString
 	err = r.db.QueryRow(
 		"SELECT id, key, name, enabled, createdAt FROM apiKeys WHERE key = ? LIMIT 1",
 		key,
-	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &enabledLegacy, &apiKey.CreatedAt)
+	).Scan(&apiKey.ID, &apiKey.Key, &apiKey.Name, &enabledLegacy, &caLegacy)
 	apiKey.IsActive = enabledLegacy
+	if caLegacy.Valid {
+		apiKey.CreatedAt = caLegacy.String
+	}
 
 	if err == sql.ErrNoRows {
 		return nil, nil
