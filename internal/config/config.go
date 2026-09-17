@@ -40,8 +40,11 @@ func loadDotenv(path string) {
 		} else if idx := strings.IndexByte(v, '#'); idx >= 0 {
 			v = strings.TrimSpace(v[:idx])
 		}
-		// Existing env vars take precedence
-		if os.Getenv(k) == "" {
+		// Special case: do not let a generic PORT in .env hijack LAM-Router's default 9898
+		if k == "PORT" && (v == "3000" || v == "8080") {
+			continue
+		}
+		if _, exists := os.LookupEnv(k); !exists {
 			os.Setenv(k, v)
 		}
 	}
@@ -87,7 +90,16 @@ func LoadConfig() *Config {
 		loadDotenv(filepath.Join(homeDir, ".lam-router", ".env"))
 		loadDotenv(filepath.Join(homeDir, ".hermes", ".env"))
 	}
-	portStr := os.Getenv("PORT")
+	portStr := os.Getenv("LAM_ROUTER_PORT")
+	if portStr == "" {
+		portStr = os.Getenv("SROUTER_PORT")
+	}
+	if portStr == "" {
+		portStr = os.Getenv("ROUTER_PORT")
+	}
+	if portStr == "" {
+		portStr = os.Getenv("PORT")
+	}
 	port, err := strconv.Atoi(portStr)
 	if err != nil || port <= 0 {
 		port = 9898 // Default port for LAM-Router
