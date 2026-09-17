@@ -30,6 +30,22 @@ CREATE TABLE IF NOT EXISTS providerConnections (
     updatedAt TEXT
 );
 
+CREATE TABLE IF NOT EXISTS apiKeys (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    key TEXT UNIQUE NOT NULL,
+    keyHash TEXT,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    rateLimit INTEGER DEFAULT 0,
+    quotaLimit INTEGER DEFAULT 0,
+    usageTokens INTEGER DEFAULT 0,
+    creditLimit REAL DEFAULT 0,
+    usageCost REAL DEFAULT 0,
+    allowedModels TEXT,
+    createdAt TEXT,
+    updatedAt TEXT
+);
+
 CREATE TABLE IF NOT EXISTS admin_account (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     password_hash TEXT NOT NULL,

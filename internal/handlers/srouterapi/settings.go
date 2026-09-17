@@ -313,6 +313,11 @@ func (h *SRouterHandler) HandleBackupImport(w http.ResponseWriter, r *http.Reque
 						id, name, key, key_hash, enabled, created_at
 					) VALUES (?, ?, ?, ?, 1, ?)`,
 					id, name, key, keyHash, now)
+				_, _ = h.db.Exec(`
+					INSERT OR REPLACE INTO apiKeys (
+						id, name, key, keyHash, enabled, createdAt, updatedAt
+					) VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))`,
+					id, name, key, keyHash)
 				if err == nil {
 					importedKeys++
 				}
