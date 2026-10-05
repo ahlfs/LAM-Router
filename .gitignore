@@ -1,0 +1,55 @@
+# Build artifacts & cross-compiled binaries
+/lam-router
+/lamrouter
+/lam-router-*
+/lamrouter-*
+/9router-go
+/9router-go-*
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# NPM artifacts & packages
+npm/*.tgz
+*.tgz
+npm/node_modules/
+
+# Test binaries & coverage
+*.test
+*.out
+coverage/
+
+# Logs & temporary files
+*.log
+/tmp/*.log
+*.tmp
+*.tmp-*
+
+# Data, exports & backups
+.lam-router/
+.9router/
+data/
+exports/
+backups/
+*-backup.json
+*backup*.json
+*.sqlite
+*.sqlite-*
+*.db-shm
+*.db-wal
+
+# Local overrides
+docker-compose.local.yml
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+graphify-out

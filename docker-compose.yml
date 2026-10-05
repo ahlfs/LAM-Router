@@ -1,0 +1,21 @@
+services:
+  lam-router:
+    build: .
+    container_name: lam-router
+    ports:
+      - "9898:9898"
+    volumes:
+      - lam-router-data:/data
+    environment:
+      - PORT=9898
+      - DATA_DIR=/data
+      # Token saver toggles (all default off except RTK):
+      # - RTK_ENABLED=true
+      # - CAVEMAN_ENABLED=false
+      # - PONYTAIL_ENABLED=false
+      # Or use DB_PATH for custom SQLite location:
+      # - DB_PATH=/data/custom/data.sqlite
+    restart: unless-stopped
+
+volumes:
+  lam-router-data:

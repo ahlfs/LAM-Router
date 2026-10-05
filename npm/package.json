@@ -1,0 +1,44 @@
+{
+  "name": "lam-router",
+  "version": "1.8.4",
+  "description": "Ultra-fast AI API proxy router with multi-provider failover, virtual combos, token savers, and terminal UI",
+  "bin": {
+    "lam-router": "./bin/cli.js",
+    "lamrouter": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "postinstall": "node bin/cli.js --download-only || true",
+    "test": "node bin/cli.js --help"
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "proxy",
+    "router",
+    "antigravity",
+    "openai",
+    "claude",
+    "tui",
+    "cli",
+    "failover",
+    "token-saver"
+  ],
+  "author": "ahlfs",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ahlfs/LAM-Router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ahlfs/LAM-Router/issues"
+  },
+  "homepage": "https://github.com/ahlfs/LAM-Router#readme",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
