@@ -11,7 +11,7 @@ permissions:
   packages: write
 
 env:
-  REGISTRY_IMAGE: luqmenul/9router-go
+  REGISTRY_IMAGE: ahlfs/lam-router
 
 jobs:
   binaries:
@@ -55,10 +55,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            9router-go-linux-amd64
-            9router-go-linux-arm64
-            9router-go-darwin-arm64
-            9router-go-windows-amd64.exe
+            lam-router-linux-amd64
+            lam-router-linux-arm64
+            lam-router-darwin-amd64
+            lam-router-darwin-arm64
+            lam-router-windows-amd64.exe
           body_path: /tmp/changelog.md
           generate_release_notes: false
         env:
@@ -67,6 +68,7 @@ jobs:
   docker:
     name: Build and push Docker image
     runs-on: ubuntu-latest
+    if: "${{ secrets.DOCKERHUB_USERNAME != '' }}"
     environment: prod
     steps:
       - uses: actions/checkout@v4
