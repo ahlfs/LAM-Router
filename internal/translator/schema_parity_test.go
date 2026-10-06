@@ -88,3 +88,35 @@ func TestSanitizeOpenAITools_NoToolsUnchanged(t *testing.T) {
 		t.Errorf("no-tools body must be returned unchanged, got: %s", out)
 	}
 }
+
+func TestCleanParametersSchema_PreservesPropertiesNamedFormatTitleDefault(t *testing.T) {
+	input := `{"type":"object","properties":{
+		"format":{"type":"string","description":"output format"},
+		"title":{"type":"string","description":"item title"},
+		"default":{"type":"string","description":"default value"}
+	},"required":["format","title","default"]}`
+
+	out := CleanParametersSchema([]byte(input))
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	props, ok := parsed["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected properties object, got: %s", string(out))
+	}
+	for _, expected := range []string{"format", "title", "default"} {
+		if _, exists := props[expected]; !exists {
+			t.Errorf("property %q must NOT be stripped from properties map, got: %s", expected, string(out))
+		}
+	}
+
+	req, ok := parsed["required"].([]any)
+	if !ok {
+		t.Fatalf("expected required array, got: %s", string(out))
+	}
+	if len(req) != 3 {
+		t.Errorf("expected 3 required items, got: %v", req)
+	}
+}

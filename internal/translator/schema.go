@@ -121,29 +121,50 @@ func cleanGeminiSchema(schema map[string]interface{}) {
 	}
 
 	// Clean up required array (must only contain keys present in properties)
-	if reqRaw, hasReq := schema["required"]; hasReq {
-		if reqArr, ok := reqRaw.([]interface{}); ok {
-			var validReqs []string
-			if propsRaw, hasProps := schema["properties"]; hasProps {
-				if props, ok := propsRaw.(map[string]interface{}); ok {
-					for _, rRaw := range reqArr {
-						if rStr, ok := rRaw.(string); ok {
-							if _, exists := props[rStr]; exists {
-								validReqs = append(validReqs, rStr)
-							}
-						}
-					}
+	cleanRequired := func(s map[string]interface{}) {
+		reqRaw, hasReq := s["required"]
+		if !hasReq {
+			return
+		}
+		var reqStrs []string
+		switch r := reqRaw.(type) {
+		case []interface{}:
+			for _, item := range r {
+				if str, ok := item.(string); ok {
+					reqStrs = append(reqStrs, str)
 				}
 			}
-			if len(validReqs) > 0 {
-				schema["required"] = validReqs
-			} else {
-				delete(schema, "required")
+		case []string:
+			reqStrs = r
+		default:
+			delete(s, "required")
+			return
+		}
+
+		propsRaw, hasProps := s["properties"]
+		if !hasProps {
+			delete(s, "required")
+			return
+		}
+		props, ok := propsRaw.(map[string]interface{})
+		if !ok || len(props) == 0 {
+			delete(s, "required")
+			return
+		}
+
+		var validReqs []string
+		for _, rStr := range reqStrs {
+			if _, exists := props[rStr]; exists {
+				validReqs = append(validReqs, rStr)
 			}
+		}
+		if len(validReqs) > 0 {
+			s["required"] = validReqs
 		} else {
-			delete(schema, "required") // invalid format
+			delete(s, "required")
 		}
 	}
+	cleanRequired(schema)
 
 	// Add placeholder for empty object schemas (Antigravity requirement)
 	if t, hasT := schema["type"]; hasT && t == "object" {
@@ -178,7 +199,17 @@ func cleanGeminiSchema(schema map[string]interface{}) {
 		schema["required"] = []string{"reason"}
 	}
 
-	for _, v := range schema {
+	for k, v := range schema {
+		if k == "properties" {
+			if propsMap, ok := v.(map[string]interface{}); ok {
+				for _, propChild := range propsMap {
+					if propMap, ok := propChild.(map[string]interface{}); ok {
+						cleanGeminiSchema(propMap)
+					}
+				}
+			}
+			continue
+		}
 		switch child := v.(type) {
 		case map[string]interface{}:
 			cleanGeminiSchema(child)
@@ -190,6 +221,8 @@ func cleanGeminiSchema(schema map[string]interface{}) {
 			}
 		}
 	}
+
+	cleanRequired(schema)
 }
 
 // CleanParametersSchema parses raw JSON schema, cleans it, and returns it.
