@@ -165,6 +165,45 @@ CREATE TABLE IF NOT EXISTS disabled_models (
     reason TEXT,
     disabled_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS usageHistory (
+    timestamp TEXT,
+    provider TEXT,
+    model TEXT,
+    connectionId TEXT,
+    apiKey TEXT,
+    endpoint TEXT,
+    promptTokens INTEGER,
+    completionTokens INTEGER,
+    cost REAL,
+    status TEXT,
+    tokens TEXT,
+    meta TEXT
+);
+
+CREATE TABLE IF NOT EXISTS usageDaily (
+    dateKey TEXT PRIMARY KEY,
+    data TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS requestDetails (
+    id TEXT PRIMARY KEY,
+    timestamp TEXT,
+    provider TEXT,
+    model TEXT,
+    connectionId TEXT,
+    status TEXT,
+    data TEXT
+);
+
+CREATE TABLE IF NOT EXISTS proxyPools (
+    id TEXT PRIMARY KEY,
+    isActive INTEGER DEFAULT 1,
+    testStatus TEXT,
+    data TEXT,
+    createdAt TEXT,
+    updatedAt TEXT
+);
 `
 	_, err := dbConn.Exec(schema)
 	if err == nil {
@@ -172,6 +211,8 @@ CREATE TABLE IF NOT EXISTS disabled_models (
 		_, _ = dbConn.Exec(`ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 999999`)
 		_, _ = dbConn.Exec(`ALTER TABLE providerConnections ADD COLUMN priority INTEGER DEFAULT 999999`)
 		_, _ = dbConn.Exec(`ALTER TABLE request_logs ADD COLUMN compression_tokens INTEGER DEFAULT 0`)
+		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN isActive INTEGER DEFAULT 1`)
+		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN enabled INTEGER DEFAULT 1`)
 	}
 	return err
 }

@@ -271,11 +271,11 @@ var AntigravityModelSynonyms = map[string]string{
 	// Gemini Pro / Agents
 	"gemini-2.5-pro":             "gemini-pro-agent",
 	"gemini-2.5-flash":           "gemini-3.7-flash-tiered",
-	"gemini-3.1-pro-high":        "gemini-3.1-pro-high",
-	"gemini-3.1-pro":             "gemini-3.1-pro-high",
-	"gemini-3.1-pro-low":         "gemini-3.1-pro-low",
-	"gemini-3-pro-high":          "gemini-3.1-pro-high",
-	"gemini-3-pro-low":           "gemini-3.1-pro-low",
+	"gemini-3.1-pro-high":        "gemini-pro-agent",
+	"gemini-3.1-pro":             "gemini-pro-agent",
+	"gemini-3.1-pro-low":         "gemini-pro-agent",
+	"gemini-3-pro-high":          "gemini-pro-agent",
+	"gemini-3-pro-low":           "gemini-pro-agent",
 
 	// Claude via Antigravity CloudCode
 	"claude-3-7-sonnet":          "claude-sonnet-4-6",
