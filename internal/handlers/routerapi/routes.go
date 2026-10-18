@@ -249,6 +249,8 @@ type RouterAPIHandler struct {
 	db   *sql.DB
 	ts   *shared.TokenSaverConfig
 
+	ChatHandler http.HandlerFunc
+
 	// Cloudflare Tunnel in-memory state
 	tunnelMu      sync.Mutex
 	tunnelCmd     *exec.Cmd
@@ -266,8 +268,12 @@ func NewRouterAPIHandler(repo *db.Repo, ts *shared.TokenSaverConfig) *RouterAPIH
 	}
 }
 
+func (h *RouterAPIHandler) SetChatHandler(fn http.HandlerFunc) {
+	h.ChatHandler = fn
+}
+
 // RegisterV1Routes mounts all LAM-Router /v1 endpoints on the router.
-func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) {
+func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) *RouterAPIHandler {
 	h := NewRouterAPIHandler(repo, ts)
 	_ = InitSchema(repo.RawDB())
 
@@ -407,4 +413,5 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/auth/framer/bridge.user.js", h.HandleFramerBridgeScript)
 	r.HandleFunc("/v1/auth/framer/bridge", h.HandleFramerBridgeIngest)
 	r.HandleFunc("/v1/auth/framer/session-sync", h.HandleFramerSessionSync)
+	return h
 }

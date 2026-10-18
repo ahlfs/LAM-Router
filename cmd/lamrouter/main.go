@@ -22,6 +22,7 @@ import (
 	"lamrouter/internal/config"
 	"lamrouter/internal/db"
 	"lamrouter/internal/handlers"
+	"lamrouter/internal/handlers/chat"
 	"lamrouter/internal/handlers/routerapi"
 	"lamrouter/internal/middleware"
 	"lamrouter/internal/shutdown"
@@ -294,7 +295,9 @@ func setupRouter(cfg *config.Config, repo *db.Repo, ts *handlers.TokenSaverConfi
 	r.Use(middleware.RequestLogger)
 
 	// Register RouterAPI v1 REST API for UI dashboard
-	routerapi.RegisterV1Routes(r, repo, ts)
+	apiH := routerapi.RegisterV1Routes(r, repo, ts)
+	chatH := chat.NewChatHandler(repo, ts)
+	apiH.SetChatHandler(chatH.HandleChatCompletions)
 
 	// Mount standard LAM-Router AI API routes under /v1 for OpenAI/Anthropic/Media
 	r.Route("/v1", func(v1 chi.Router) {
