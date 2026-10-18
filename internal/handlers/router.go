@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -14,6 +15,7 @@ import (
 	"lamrouter/internal/handlers/shared"
 	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/middleware"
+	"lamrouter/internal/webdist"
 )
 
 // Re-export TokenSaverConfig for root compatibility
@@ -134,6 +136,10 @@ func SetupRoutes(r interface {
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	// Public (unauthenticated) endpoints
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Accept"), "text/html") {
+			webdist.ServeIndex(w, r)
+			return
+		}
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 		w.Write([]byte(`{"status":"ok"}`))
 	}

@@ -12,6 +12,17 @@ import (
 //go:embed all:dist/*
 var distFS embed.FS
 
+// ServeIndex serves the SPA index.html for client-side routes.
+func ServeIndex(w http.ResponseWriter, req *http.Request) {
+	sub, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		http.Error(w, "web assets not found", http.StatusInternalServerError)
+		return
+	}
+	req.URL.Path = "/"
+	http.FileServer(http.FS(sub)).ServeHTTP(w, req)
+}
+
 // RegisterWebUI mounts the embedded React dashboard static files on the chi router.
 // If a requested file doesn't exist, it falls back to index.html to support SPA client-side routing.
 func RegisterWebUI(r chi.Router) {
@@ -23,7 +34,7 @@ func RegisterWebUI(r chi.Router) {
 
 	r.NotFound(func(w http.ResponseWriter, req *http.Request) {
 		path := strings.TrimPrefix(req.URL.Path, "/")
-		if strings.HasPrefix(path, "v1/") || strings.HasPrefix(path, "api/") || strings.HasPrefix(path, "health") {
+		if strings.HasPrefix(path, "v1/") || strings.HasPrefix(path, "api/") {
 			http.NotFound(w, req)
 			return
 		}
