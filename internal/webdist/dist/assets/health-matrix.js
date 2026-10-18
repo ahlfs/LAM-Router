@@ -348,7 +348,8 @@ function HealthMatrixPage() {
               e.jsxs("button", {
                 type: "button",
                 onClick: () => setFilterDropdownOpen(prev => !prev),
-                className: "inline-flex h-9 items-center justify-between gap-2.5 rounded-lg border border-border/80 bg-card hover:bg-secondary/50 px-3 text-xs font-semibold text-foreground transition-all cursor-pointer shadow-2xs min-w-[195px]",
+                className: "inline-flex h-9 items-center justify-between gap-2.5 rounded-lg border border-border/80 hover:bg-secondary/50 px-3 text-xs font-semibold text-foreground transition-all cursor-pointer shadow-2xs min-w-[195px]",
+                style: { backgroundColor: "var(--popover, #181a20)" },
                 children: [
                   e.jsxs("div", {
                     className: "flex items-center gap-2",
@@ -367,7 +368,8 @@ function HealthMatrixPage() {
                     onClick: () => setFilterDropdownOpen(false)
                   }),
                   e.jsx("div", {
-                    className: "absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-border/90 bg-card dark:bg-[#13151c] p-1.5 shadow-2xl space-y-0.5 animate-in fade-in-50",
+                    className: "absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-border p-1.5 shadow-2xl space-y-0.5 animate-in fade-in-50",
+                    style: { backgroundColor: "var(--popover, #12141a)" },
                     children: filterOptions.map(opt => {
                       const isSelected = statusFilter === opt.id;
                       const OptIcon = opt.icon;
@@ -529,7 +531,8 @@ function HealthMatrixPage() {
         className: "fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in-50",
         onClick: () => !isDisabling && setConfirmDisableOpen(false),
         children: e.jsxs("div", {
-          className: "relative flex flex-col w-full max-w-lg rounded-2xl border border-border/90 bg-card dark:bg-[#13151c] text-foreground shadow-2xl overflow-hidden font-sans",
+          className: "relative flex flex-col w-full max-w-lg rounded-2xl border border-border text-foreground shadow-2xl overflow-hidden font-sans",
+          style: { backgroundColor: "var(--popover, #12141a)" },
           onClick: ev => ev.stopPropagation(),
           children: [
             // Modal Header
