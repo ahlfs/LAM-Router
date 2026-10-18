@@ -26,6 +26,24 @@ CREATE TABLE IF NOT EXISTS model_health (
     last_error TEXT,
     last_checked_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS disabled_models (
+    model_id TEXT PRIMARY KEY,
+    provider_id TEXT,
+    reason TEXT,
+    disabled_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS provider_models (
+    provider_id TEXT NOT NULL,
+    model_id TEXT NOT NULL,
+    display_name TEXT,
+    context_length INTEGER DEFAULT 0,
+    is_custom INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (provider_id, model_id)
+);
 `
 	_, err := h.db.Exec(schema)
 	return err
