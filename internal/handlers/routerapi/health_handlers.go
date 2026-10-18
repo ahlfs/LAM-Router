@@ -207,3 +207,54 @@ func (h *RouterAPIHandler) HandleModelsHealthDisableOffline(w http.ResponseWrite
 		"disabled_models": disabledList,
 	})
 }
+
+// POST /v1/health/models/toggle
+func (h *RouterAPIHandler) HandleModelsHealthToggle(w http.ResponseWriter, req *http.Request) {
+	if req.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var reqBody struct {
+		ModelID string `json:"model_id"`
+		Enabled bool   `json:"enabled"`
+	}
+	if err := json.NewDecoder(req.Body).Decode(&reqBody); err != nil || reqBody.ModelID == "" {
+		http.Error(w, "Invalid model_id", http.StatusBadRequest)
+		return
+	}
+
+	providerID := "custom"
+	if strings.Contains(reqBody.ModelID, "/") {
+		providerID = strings.Split(reqBody.ModelID, "/")[0]
+	}
+
+	now := time.Now().UnixMilli()
+	activeInt := 0
+	if reqBody.Enabled {
+		activeInt = 1
+	}
+
+	if h.db != nil {
+		// 1. provider_models
+		_, _ = h.db.Exec(`
+			INSERT INTO provider_models (provider_id, model_id, is_active, created_at)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = excluded.is_active`,
+			providerID, reqBody.ModelID, activeInt, now)
+
+		// 2. disabled_models
+		if reqBody.Enabled {
+			_, _ = h.db.Exec(`DELETE FROM disabled_models WHERE LOWER(model_id) = LOWER(?)`, reqBody.ModelID)
+		} else {
+			_, _ = h.db.Exec(`INSERT OR REPLACE INTO disabled_models (model_id, provider_id, reason, disabled_at) VALUES (?, ?, 'manual_health_toggle', ?)`, reqBody.ModelID, providerID, now)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"model_id":   reqBody.ModelID,
+		"is_enabled": reqBody.Enabled,
+	})
+}

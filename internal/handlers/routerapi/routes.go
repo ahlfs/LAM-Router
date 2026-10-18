@@ -395,6 +395,7 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/health/models/probe", h.HandleModelsHealthProbe)
 	r.HandleFunc("/v1/health/models/reset", h.HandleModelsHealthReset)
 	r.HandleFunc("/v1/health/models/disable-offline", h.HandleModelsHealthDisableOffline)
+	r.HandleFunc("/v1/health/models/toggle", h.HandleModelsHealthToggle)
 
 	// Tunnel Domain
 	r.HandleFunc("/v1/tunnel/status", h.HandleTunnelStatus)

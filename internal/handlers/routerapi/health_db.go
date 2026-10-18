@@ -12,6 +12,7 @@ type ModelHealthRecord struct {
 	StatusCode    int    `json:"status_code"`
 	LastError     string `json:"last_error,omitempty"`
 	LastCheckedAt int64  `json:"last_checked_at"`
+	IsEnabled     bool   `json:"is_enabled"`
 }
 
 func (h *RouterAPIHandler) InitHealthSchema() error {
@@ -32,9 +33,23 @@ CREATE TABLE IF NOT EXISTS model_health (
 
 func (h *RouterAPIHandler) GetModelHealthRecords() ([]ModelHealthRecord, error) {
 	rows, err := h.db.Query(`
-		SELECT model_id, provider_id, status, latency_ms, status_code, COALESCE(last_error, ''), last_checked_at
-		FROM model_health
-		ORDER BY model_id ASC
+		SELECT 
+			h.model_id, 
+			h.provider_id, 
+			h.status, 
+			h.latency_ms, 
+			h.status_code, 
+			COALESCE(h.last_error, ''), 
+			h.last_checked_at,
+			CASE 
+				WHEN d.model_id IS NOT NULL THEN 0
+				WHEN pm.is_active = 0 THEN 0
+				ELSE 1
+			END as is_enabled
+		FROM model_health h
+		LEFT JOIN disabled_models d ON LOWER(d.model_id) = LOWER(h.model_id)
+		LEFT JOIN provider_models pm ON LOWER(pm.model_id) = LOWER(h.model_id)
+		ORDER BY h.model_id ASC
 	`)
 	if err != nil {
 		return nil, err
@@ -45,10 +60,12 @@ func (h *RouterAPIHandler) GetModelHealthRecords() ([]ModelHealthRecord, error) 
 	for rows.Next() {
 		var rec ModelHealthRecord
 		var lastErr string
-		if err := rows.Scan(&rec.ModelID, &rec.ProviderID, &rec.Status, &rec.LatencyMs, &rec.StatusCode, &lastErr, &rec.LastCheckedAt); err != nil {
+		var isEnabledInt int
+		if err := rows.Scan(&rec.ModelID, &rec.ProviderID, &rec.Status, &rec.LatencyMs, &rec.StatusCode, &lastErr, &rec.LastCheckedAt, &isEnabledInt); err != nil {
 			return nil, err
 		}
 		rec.LastError = lastErr
+		rec.IsEnabled = (isEnabledInt == 1)
 		results = append(results, rec)
 	}
 	return results, rows.Err()

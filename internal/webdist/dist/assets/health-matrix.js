@@ -10,6 +10,7 @@ const IconSearch = ae("search", [["circle", { cx: "11", cy: "11", r: "8", key: "
 const IconHelpCircle = ae("help-circle", [["circle", { cx: "12", cy: "12", r: "10", key: "h1" }], ["path", { d: "M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3", key: "h2" }], ["line", { x1: "12", x2: "12.01", y1: "17", y2: "17", key: "h3" }]]);
 const IconClock = ae("clock", [["circle", { cx: "12", cy: "12", r: "10", key: "clk1" }], ["polyline", { points: "12 6 12 12 16 14", key: "clk2" }]]);
 const IconSlash = ae("ban", [["circle", { cx: "12", cy: "12", r: "10", key: "b1" }], ["path", { d: "m4.93 4.93 14.14 14.14", key: "b2" }]]);
+const IconPower = ae("power", [["path", { d: "M18.36 6.64a9 9 0 1 1-12.73 0", key: "pw1" }], ["line", { x1: "12", x2: "12", y1: "2", y2: "12", key: "pw2" }]]);
 const IconClose = ae("x", [["line", { x1: "18", x2: "6", y1: "6", y2: "18", key: "x1" }], ["line", { x1: "6", x2: "18", y1: "6", y2: "18", key: "x2" }]]);
 
 function formatRelativeTime(timestamp) {
@@ -38,28 +39,28 @@ function LatencyBadge({ latency }) {
   });
 }
 
-function StatusBadge({ status, statusCode }) {
-  if (status === "healthy") {
-    return e.jsxs("span", {
-      className: "inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400",
-      children: [e.jsx(IconCheckCircle, { className: "size-3.5 shrink-0" }), "HEALTHY"]
-    });
-  }
-  if (status === "offline") {
-    return e.jsxs("span", {
-      className: "inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400",
-      children: [e.jsx(IconAlertCircle, { className: "size-3.5 shrink-0" }), statusCode ? `OFFLINE (${statusCode})` : "OFFLINE"]
-    });
-  }
-  if (status === "probing") {
-    return e.jsxs("span", {
-      className: "inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-bold text-sky-600 dark:text-sky-400",
-      children: [e.jsx(IconRefreshCw, { className: "size-3.5 shrink-0 animate-spin" }), "PROBING"]
-    });
-  }
-  return e.jsxs("span", {
-    className: "inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
-    children: [e.jsx(IconHelpCircle, { className: "size-3.5 shrink-0" }), "UNTESTED"]
+function StatusBadge({ status, statusCode, isEnabled }) {
+  return e.jsxs("div", {
+    className: "flex items-center gap-1.5 flex-wrap",
+    children: [
+      status === "healthy" ? e.jsxs("span", {
+        className: "inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400",
+        children: [e.jsx(IconCheckCircle, { className: "size-3.5 shrink-0" }), "HEALTHY"]
+      }) : status === "offline" ? e.jsxs("span", {
+        className: "inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400",
+        children: [e.jsx(IconAlertCircle, { className: "size-3.5 shrink-0" }), statusCode ? `OFFLINE (${statusCode})` : "OFFLINE"]
+      }) : status === "probing" ? e.jsxs("span", {
+        className: "inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-bold text-sky-600 dark:text-sky-400",
+        children: [e.jsx(IconRefreshCw, { className: "size-3.5 shrink-0 animate-spin" }), "PROBING"]
+      }) : e.jsxs("span", {
+        className: "inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
+        children: [e.jsx(IconHelpCircle, { className: "size-3.5 shrink-0" }), "UNTESTED"]
+      }),
+      isEnabled === false ? e.jsxs("span", {
+        className: "inline-flex items-center gap-1 rounded-full border border-border/80 bg-secondary/90 px-2 py-0.5 text-[10px] font-bold text-muted-foreground",
+        children: [e.jsx(IconSlash, { className: "size-2.5" }), "DISABLED"]
+      }) : null
+    ]
   });
 }
 
@@ -68,6 +69,7 @@ function HealthMatrixPage() {
   const [search, setSearch] = N.useState("");
   const [statusFilter, setStatusFilter] = N.useState("all");
   const [probingModels, setProbingModels] = N.useState(new Set());
+  const [togglingModels, setTogglingModels] = N.useState(new Set());
   const [isProbingAll, setIsProbingAll] = N.useState(false);
   const [confirmDisableOpen, setConfirmDisableOpen] = N.useState(false);
   const [isDisabling, setIsDisabling] = N.useState(false);
@@ -86,7 +88,9 @@ function HealthMatrixPage() {
 
   const models = (data && data.models) ? data.models : [];
   const stats = (data && data.stats) ? data.stats : { total: 0, healthy: 0, offline: 0, untested: 0, avg_latency_ms: 0 };
-  const offlineModels = N.useMemo(() => models.filter(m => m.status === "offline"), [models]);
+  const offlineModels = N.useMemo(() => models.filter(m => m.status === "offline" && m.is_enabled !== false), [models]);
+  const disabledCount = N.useMemo(() => models.filter(m => m.is_enabled === false).length, [models]);
+  const activeCount = N.useMemo(() => models.filter(m => m.is_enabled !== false).length, [models]);
 
   const handleProbeSingle = async (modelId) => {
     setProbingModels(prev => new Set(prev).add(modelId));
@@ -109,9 +113,31 @@ function HealthMatrixPage() {
     }
   };
 
+  const handleToggleSingle = async (modelId, targetEnabled) => {
+    setTogglingModels(prev => new Set(prev).add(modelId));
+    try {
+      await $.post("/v1/health/models/toggle", { model_id: modelId, enabled: targetEnabled });
+      queryClient.invalidateQueries({ queryKey: ["model_health"] });
+      queryClient.invalidateQueries({ queryKey: ["models"] });
+      if (targetEnabled) {
+        S.success(`${modelId} berhasil diaktifkan kembali!`);
+      } else {
+        S.success(`${modelId} dinonaktifkan dari katalog.`);
+      }
+    } catch (err) {
+      S.error(`Gagal toggle model: ${err.message || "Error"}`);
+    } finally {
+      setTogglingModels(prev => {
+        const next = new Set(prev);
+        next.delete(modelId);
+        return next;
+      });
+    }
+  };
+
   const handleProbeAll = async () => {
     setIsProbingAll(true);
-    S.success("Starting concurrent health probe on all models...");
+    S.success("Starting concurrent health probe on all active models...");
     try {
       await $.post("/v1/health/models/probe", { all: true });
       queryClient.invalidateQueries({ queryKey: ["model_health"] });
@@ -155,6 +181,8 @@ function HealthMatrixPage() {
     return models.filter(m => {
       const matchSearch = !q || m.model_id.toLowerCase().includes(q) || (m.provider_id && m.provider_id.toLowerCase().includes(q));
       if (!matchSearch) return false;
+      if (statusFilter === "active") return m.is_enabled !== false;
+      if (statusFilter === "disabled") return m.is_enabled === false;
       if (statusFilter === "healthy") return m.status === "healthy";
       if (statusFilter === "offline") return m.status === "offline";
       if (statusFilter === "untested") return m.status !== "healthy" && m.status !== "offline";
@@ -214,7 +242,7 @@ function HealthMatrixPage() {
                     onClick: () => setConfirmDisableOpen(true),
                     disabled: offlineModels.length === 0 || isDisabling,
                     className: "inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 px-3 text-xs font-semibold text-rose-600 dark:text-rose-400 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-2xs",
-                    title: "Nonaktifkan semua model yang offline agar tidak muncul di /v1/models",
+                    title: "Nonaktifkan semua model offline agar tidak muncul di /v1/models",
                     children: [
                       e.jsx(IconSlash, { className: "size-3.5 shrink-0" }),
                       e.jsxs("span", { children: ["Nonaktifkan Offline (", offlineModels.length, ")"] })
@@ -242,10 +270,10 @@ function HealthMatrixPage() {
               e.jsxs("div", {
                 className: "rounded-xl border border-border/70 bg-secondary/20 p-3.5 space-y-1",
                 children: [
-                  e.jsx("span", { className: "text-[11px] font-semibold text-muted-foreground uppercase tracking-wider", children: "Monitored Models" }),
+                  e.jsx("span", { className: "text-[11px] font-semibold text-muted-foreground uppercase tracking-wider", children: "Active Models" }),
                   e.jsxs("div", {
                     className: "text-xl sm:text-2xl font-bold font-mono text-foreground",
-                    children: [stats.total || models.length, " Models"]
+                    children: [activeCount, " / ", models.length]
                   })
                 ]
               }),
@@ -302,17 +330,18 @@ function HealthMatrixPage() {
             ]
           }),
           e.jsx("div", {
-            className: "inline-flex items-center rounded-lg border border-border/80 bg-card p-1 text-xs font-medium self-start sm:self-auto",
+            className: "inline-flex items-center rounded-lg border border-border/80 bg-card p-1 text-xs font-medium self-start sm:self-auto flex-wrap gap-1",
             children: [
               { id: "all", label: `All (${models.length})` },
+              { id: "active", label: `Active (${activeCount})` },
+              { id: "disabled", label: `Disabled (${disabledCount})` },
               { id: "healthy", label: `Healthy (${stats.healthy})` },
-              { id: "offline", label: `Offline (${stats.offline})` },
-              { id: "untested", label: `Untested (${stats.untested})` }
+              { id: "offline", label: `Offline (${stats.offline})` }
             ].map(tab => e.jsx("button", {
               key: tab.id,
               type: "button",
               onClick: () => setStatusFilter(tab.id),
-              className: `px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${statusFilter === tab.id ? "bg-foreground text-background shadow-xs font-bold" : "text-muted-foreground hover:text-foreground"}`
+              className: `px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer text-xs ${statusFilter === tab.id ? "bg-foreground text-background shadow-xs font-bold" : "text-muted-foreground hover:text-foreground"}`
             }, tab.id))
           })
         ]
@@ -322,7 +351,7 @@ function HealthMatrixPage() {
       e.jsx("div", {
         className: "overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs",
         children: e.jsxs("table", {
-          className: "w-full text-left border-collapse text-xs min-w-[620px]",
+          className: "w-full text-left border-collapse text-xs min-w-[640px]",
           children: [
             e.jsx("thead", {
               className: "border-b border-border/80 bg-secondary/40 text-muted-foreground uppercase text-[10px] font-bold tracking-wider",
@@ -332,7 +361,7 @@ function HealthMatrixPage() {
                   e.jsx("th", { className: "py-3 px-4", children: "Status" }),
                   e.jsx("th", { className: "py-3 px-4", children: "Roundtrip Latency" }),
                   e.jsx("th", { className: "py-3 px-4", children: "Last Verified" }),
-                  e.jsx("th", { className: "py-3 px-4 text-right", children: "Action" })
+                  e.jsx("th", { className: "py-3 px-4 text-right", children: "Actions" })
                 ]
               })
             }),
@@ -348,10 +377,12 @@ function HealthMatrixPage() {
                 }) :
                 filteredModels.map(m => {
                   const isProbing = probingModels.has(m.model_id);
+                  const isToggling = togglingModels.has(m.model_id);
                   const effectiveStatus = isProbing ? "probing" : m.status;
+                  const isEnabled = m.is_enabled !== false;
                   return e.jsxs("tr", {
                     key: m.model_id,
-                    className: "hover:bg-secondary/30 transition-colors group",
+                    className: `hover:bg-secondary/30 transition-colors group ${!isEnabled ? "opacity-75 bg-secondary/10" : ""}`,
                     children: [
                       e.jsxs("td", {
                         className: "py-3 px-4 font-mono",
@@ -372,7 +403,7 @@ function HealthMatrixPage() {
                       }),
                       e.jsx("td", {
                         className: "py-3 px-4",
-                        children: e.jsx(StatusBadge, { status: effectiveStatus, statusCode: m.status_code })
+                        children: e.jsx(StatusBadge, { status: effectiveStatus, statusCode: m.status_code, isEnabled: isEnabled })
                       }),
                       e.jsx("td", {
                         className: "py-3 px-4",
@@ -387,14 +418,43 @@ function HealthMatrixPage() {
                       }),
                       e.jsx("td", {
                         className: "py-3 px-4 text-right",
-                        children: e.jsxs("button", {
-                          type: "button",
-                          onClick: () => handleProbeSingle(m.model_id),
-                          disabled: isProbing || isProbingAll,
-                          className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border/80 bg-secondary/50 hover:bg-secondary px-3 text-xs font-semibold text-foreground transition-all cursor-pointer disabled:opacity-40",
+                        children: e.jsxs("div", {
+                          className: "flex items-center justify-end gap-1.5",
                           children: [
-                            e.jsx(IconZap, { className: `size-3 text-primary ${isProbing ? "animate-spin" : ""}` }),
-                            e.jsx("span", { children: isProbing ? "Testing..." : "Test" })
+                            // Test Button
+                            e.jsxs("button", {
+                              type: "button",
+                              onClick: () => handleProbeSingle(m.model_id),
+                              disabled: isProbing || isProbingAll,
+                              className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border/80 bg-secondary/50 hover:bg-secondary px-2.5 text-xs font-semibold text-foreground transition-all cursor-pointer disabled:opacity-40",
+                              title: "Test latency and health",
+                              children: [
+                                e.jsx(IconZap, { className: `size-3 text-primary ${isProbing ? "animate-spin" : ""}` }),
+                                e.jsx("span", { children: isProbing ? "Testing..." : "Test" })
+                              ]
+                            }),
+                            // Individual Enable/Disable Button
+                            isEnabled ? e.jsxs("button", {
+                              type: "button",
+                              onClick: () => handleToggleSingle(m.model_id, false),
+                              disabled: isToggling,
+                              className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border/80 bg-secondary/30 hover:bg-rose-500/10 hover:text-rose-500 hover:border-rose-500/30 px-2.5 text-xs font-semibold text-muted-foreground transition-all cursor-pointer disabled:opacity-40",
+                              title: "Nonaktifkan model ini dari /v1/models",
+                              children: [
+                                e.jsx(isToggling ? IconRefreshCw : IconSlash, { className: `size-3 ${isToggling ? "animate-spin text-primary" : ""}` }),
+                                e.jsx("span", { children: "Disable" })
+                              ]
+                            }) : e.jsxs("button", {
+                              type: "button",
+                              onClick: () => handleToggleSingle(m.model_id, true),
+                              disabled: isToggling,
+                              className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 px-2.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400 transition-all cursor-pointer disabled:opacity-40",
+                              title: "Aktifkan kembali model ini ke /v1/models",
+                              children: [
+                                e.jsx(isToggling ? IconRefreshCw : IconPower, { className: `size-3 text-emerald-500 ${isToggling ? "animate-spin" : ""}` }),
+                                e.jsx("span", { children: "Enable" })
+                              ]
+                            })
                           ]
                         })
                       })
@@ -406,7 +466,7 @@ function HealthMatrixPage() {
         })
       }),
 
-      // CONFIRMATION DIALOG MODAL (For disabling offline models)
+      // CONFIRMATION DIALOG MODAL
       confirmDisableOpen ? e.jsx("div", {
         className: "fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in-50",
         onClick: () => !isDisabling && setConfirmDisableOpen(false),
@@ -451,7 +511,7 @@ function HealthMatrixPage() {
                     e.jsx("span", { className: "font-bold block mb-1 text-foreground", children: `Ada ${offlineModels.length} model offline yang akan dinonaktifkan:` }),
                     "Model yang dinonaktifkan tidak akan muncul lagi di ",
                     e.jsx("code", { className: "font-mono font-bold text-primary", children: "/v1/models" }),
-                    " dan tidak akan menerima request chat. Kamu bisa mengaktifkannya kembali sewaktu-waktu dari daftar model di halaman Provider."
+                    " dan tidak akan menerima request chat. Kamu bisa mengaktifkannya kembali satu per satu dari tabel ini atau dari halaman Provider."
                   ]
                 }),
 
@@ -475,7 +535,7 @@ function HealthMatrixPage() {
                           })
                         ]
                       }),
-                      e.jsx(StatusBadge, { status: "offline", statusCode: m.status_code })
+                      e.jsx(StatusBadge, { status: "offline", statusCode: m.status_code, isEnabled: true })
                     ]
                   }))
                 })
