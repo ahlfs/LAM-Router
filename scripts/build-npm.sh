@@ -88,6 +88,14 @@ fi
 if [[ "${1:-}" == "--publish" ]]; then
   echo ""
   echo "🚀 Publishing packages to NPM..."
+
+  # Ensure npm authentication is in $HOME/.npmrc so subdirectories inherit it
+  if [ -n "${NODE_AUTH_TOKEN:-}" ]; then
+    echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
+  elif [ -f "$ROOT_DIR/.npmrc" ]; then
+    cp "$ROOT_DIR/.npmrc" "$HOME/.npmrc"
+  fi
+
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
     echo "  → Publishing lam-router-$DIR..."
