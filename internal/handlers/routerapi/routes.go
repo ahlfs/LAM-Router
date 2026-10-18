@@ -204,6 +204,16 @@ CREATE TABLE IF NOT EXISTS proxyPools (
     createdAt TEXT,
     updatedAt TEXT
 );
+
+CREATE TABLE IF NOT EXISTS model_health (
+    model_id TEXT PRIMARY KEY,
+    provider_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    latency_ms INTEGER DEFAULT 0,
+    status_code INTEGER DEFAULT 0,
+    last_error TEXT,
+    last_checked_at INTEGER NOT NULL
+);
 `
 	_, err := dbConn.Exec(schema)
 	if err == nil {
@@ -213,6 +223,9 @@ CREATE TABLE IF NOT EXISTS proxyPools (
 		_, _ = dbConn.Exec(`ALTER TABLE request_logs ADD COLUMN compression_tokens INTEGER DEFAULT 0`)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN isActive INTEGER DEFAULT 1`)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN enabled INTEGER DEFAULT 1`)
+
+		h := &RouterAPIHandler{db: dbConn}
+		_ = h.InitHealthSchema()
 	}
 	return err
 }
