@@ -1246,25 +1246,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					// On provider list: Enter opens and focuses into its connections
-					m.expandedProviders[target.ID] = true
-					newConns, err := m.client.FetchProviderConnections(target.ID)
-					if err == nil && len(newConns) > 0 {
-						m.cachedConns[target.ID] = newConns
-						conns = newConns
-					} else if len(target.Connections) > 0 {
-						m.cachedConns[target.ID] = target.Connections
-						conns = target.Connections
-					}
+					// On provider header: toggle expand/collapse
+					m.expandedProviders[target.ID] = !m.expandedProviders[target.ID]
+					if m.expandedProviders[target.ID] {
+						newConns, err := m.client.FetchProviderConnections(target.ID)
+						if err == nil && len(newConns) > 0 {
+							m.cachedConns[target.ID] = newConns
+							conns = newConns
+						} else if len(target.Connections) > 0 {
+							m.cachedConns[target.ID] = target.Connections
+							conns = target.Connections
+						}
 
-					if len(conns) > 0 {
-						m.connFocus = true
-						m.connCursor = 0
-						m.actionMsg = fmt.Sprintf("▶ Entered connections for %s (↑/↓ to hover, t/Enter to test, d to delete, Esc to exit)", target.Name)
+						if len(conns) > 0 {
+							m.connFocus = true
+							m.connCursor = 0
+							m.actionMsg = fmt.Sprintf("▶ Opened %d connections for %s (↑/↓ to hover, t/Enter to test, d to delete, Esc to close)", len(conns), target.Name)
+						} else {
+							m.connFocus = false
+							m.connCursor = -1
+							m.actionMsg = fmt.Sprintf("ℹ No connections configured for %s. Press 'a' to add connection.", target.Name)
+						}
 					} else {
 						m.connFocus = false
 						m.connCursor = -1
-						m.actionMsg = fmt.Sprintf("ℹ No connections configured for %s. Press 'a' to add connection.", target.Name)
+						m.actionMsg = ""
 					}
 					return m, nil
 				}
@@ -1329,11 +1335,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Focus()
 				return m, nil
 			}
-			if m.activeTab == tabProviders && m.connFocus {
-				m.connFocus = false
-				m.connCursor = -1
-				m.actionMsg = ""
-				return m, nil
+			if m.activeTab == tabProviders {
+				if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+					target := fProvs[m.providerCursor]
+					if m.connFocus {
+						m.connFocus = false
+						m.connCursor = -1
+						m.actionMsg = ""
+						return m, nil
+					}
+					if m.expandedProviders[target.ID] {
+						m.expandedProviders[target.ID] = false
+						m.actionMsg = ""
+						return m, nil
+					}
+				}
 			}
 
 		case "tab":
@@ -1779,13 +1795,32 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if m.connFocus {
-						if m.connCursor > 0 {
+					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+						target := fProvs[m.providerCursor]
+						conns := m.getProviderConns(target)
+						isExp := m.expandedProviders[target.ID]
+
+						if isExp && len(conns) > 0 && m.connCursor > 0 {
 							m.connCursor--
+							m.connFocus = true
+							return m, nil
 						}
-					} else {
+						if isExp && len(conns) > 0 && m.connCursor == 0 {
+							m.connCursor = -1
+							m.connFocus = false
+							return m, nil
+						}
 						if m.providerCursor > 0 {
 							m.providerCursor--
+							prevTarget := fProvs[m.providerCursor]
+							prevConns := m.getProviderConns(prevTarget)
+							if m.expandedProviders[prevTarget.ID] && len(prevConns) > 0 {
+								m.connCursor = len(prevConns) - 1
+								m.connFocus = true
+							} else {
+								m.connCursor = -1
+								m.connFocus = false
+							}
 						}
 					}
 				case tabPlayground:
@@ -1812,16 +1847,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if m.connFocus {
-						if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
-							conns := m.getProviderConns(fProvs[m.providerCursor])
-							if m.connCursor < len(conns)-1 {
-								m.connCursor++
-							}
+					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+						target := fProvs[m.providerCursor]
+						conns := m.getProviderConns(target)
+						isExp := m.expandedProviders[target.ID]
+
+						if isExp && len(conns) > 0 && m.connCursor == -1 {
+							m.connCursor = 0
+							m.connFocus = true
+							return m, nil
 						}
-					} else {
+						if isExp && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns)-1 {
+							m.connCursor++
+							m.connFocus = true
+							return m, nil
+						}
 						if m.providerCursor < len(fProvs)-1 {
 							m.providerCursor++
+							m.connCursor = -1
+							m.connFocus = false
 						}
 					}
 				case tabPlayground:
