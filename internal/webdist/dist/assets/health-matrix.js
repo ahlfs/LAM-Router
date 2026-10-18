@@ -12,6 +12,9 @@ const IconClock = ae("clock", [["circle", { cx: "12", cy: "12", r: "10", key: "c
 const IconSlash = ae("ban", [["circle", { cx: "12", cy: "12", r: "10", key: "b1" }], ["path", { d: "m4.93 4.93 14.14 14.14", key: "b2" }]]);
 const IconPower = ae("power", [["path", { d: "M18.36 6.64a9 9 0 1 1-12.73 0", key: "pw1" }], ["line", { x1: "12", x2: "12", y1: "2", y2: "12", key: "pw2" }]]);
 const IconClose = ae("x", [["line", { x1: "18", x2: "6", y1: "6", y2: "18", key: "x1" }], ["line", { x1: "6", x2: "18", y1: "6", y2: "18", key: "x2" }]]);
+const IconFilter = ae("filter", [["polygon", { points: "22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3", key: "f1" }]]);
+const IconChevronDown = ae("chevron-down", [["polyline", { points: "6 9 12 15 18 9", key: "cd1" }]]);
+const IconCheck = ae("check", [["polyline", { points: "20 6 9 17 4 12", key: "ck1" }]]);
 
 function formatRelativeTime(timestamp) {
   if (!timestamp) return "Never";
@@ -68,6 +71,7 @@ function HealthMatrixPage() {
   const queryClient = de();
   const [search, setSearch] = N.useState("");
   const [statusFilter, setStatusFilter] = N.useState("all");
+  const [filterDropdownOpen, setFilterDropdownOpen] = N.useState(false);
   const [probingModels, setProbingModels] = N.useState(new Set());
   const [togglingModels, setTogglingModels] = N.useState(new Set());
   const [isProbingAll, setIsProbingAll] = N.useState(false);
@@ -91,6 +95,14 @@ function HealthMatrixPage() {
   const offlineModels = N.useMemo(() => models.filter(m => m.status === "offline" && m.is_enabled !== false), [models]);
   const disabledCount = N.useMemo(() => models.filter(m => m.is_enabled === false).length, [models]);
   const activeCount = N.useMemo(() => models.filter(m => m.is_enabled !== false).length, [models]);
+
+  const filterOptions = [
+    { id: "all", label: "Semua Model", count: models.length, icon: IconActivity, iconColor: "text-primary" },
+    { id: "healthy", label: "Healthy & Ready", count: stats.healthy, icon: IconCheckCircle, iconColor: "text-emerald-500" },
+    { id: "offline", label: "Offline / Error", count: stats.offline, icon: IconAlertCircle, iconColor: "text-rose-500" },
+    { id: "disabled", label: "Nonaktif / Disabled", count: disabledCount, icon: IconSlash, iconColor: "text-muted-foreground" },
+  ];
+  const activeOption = filterOptions.find(o => o.id === statusFilter) || filterOptions[0];
 
   const handleProbeSingle = async (modelId) => {
     setProbingModels(prev => new Set(prev).add(modelId));
@@ -181,11 +193,9 @@ function HealthMatrixPage() {
     return models.filter(m => {
       const matchSearch = !q || m.model_id.toLowerCase().includes(q) || (m.provider_id && m.provider_id.toLowerCase().includes(q));
       if (!matchSearch) return false;
-      if (statusFilter === "active") return m.is_enabled !== false;
       if (statusFilter === "disabled") return m.is_enabled === false;
       if (statusFilter === "healthy") return m.status === "healthy";
       if (statusFilter === "offline") return m.status === "offline";
-      if (statusFilter === "untested") return m.status !== "healthy" && m.status !== "offline";
       return true;
     });
   }, [models, search, statusFilter]);
@@ -316,6 +326,7 @@ function HealthMatrixPage() {
       e.jsxs("div", {
         className: "flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3",
         children: [
+          // Search Input
           e.jsxs("div", {
             className: "relative flex-1 max-w-md",
             children: [
@@ -324,25 +335,72 @@ function HealthMatrixPage() {
                 type: "text",
                 value: search,
                 onChange: ev => setSearch(ev.target.value),
-                placeholder: "Search model ID or provider...",
+                placeholder: "Cari model ID atau provider...",
                 className: "h-9 w-full rounded-lg border border-border/80 bg-card pl-9 pr-3 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-primary font-mono transition-all"
               })
             ]
           }),
-          e.jsx("div", {
-            className: "inline-flex items-center rounded-lg border border-border/80 bg-card p-1 text-xs font-medium self-start sm:self-auto flex-wrap gap-1",
+
+          // Elegant Dropdown Filter (Strictly zero emojis, Lucide SVG icons only)
+          e.jsxs("div", {
+            className: "relative self-start sm:self-auto",
             children: [
-              { id: "all", label: `All (${models.length})` },
-              { id: "active", label: `Active (${activeCount})` },
-              { id: "disabled", label: `Disabled (${disabledCount})` },
-              { id: "healthy", label: `Healthy (${stats.healthy})` },
-              { id: "offline", label: `Offline (${stats.offline})` }
-            ].map(tab => e.jsx("button", {
-              key: tab.id,
-              type: "button",
-              onClick: () => setStatusFilter(tab.id),
-              className: `px-2.5 py-1.5 rounded-md font-semibold transition-all cursor-pointer text-xs ${statusFilter === tab.id ? "bg-foreground text-background shadow-xs font-bold" : "text-muted-foreground hover:text-foreground"}`
-            }, tab.id))
+              e.jsxs("button", {
+                type: "button",
+                onClick: () => setFilterDropdownOpen(prev => !prev),
+                className: "inline-flex h-9 items-center justify-between gap-2.5 rounded-lg border border-border/80 bg-card hover:bg-secondary/50 px-3 text-xs font-semibold text-foreground transition-all cursor-pointer shadow-2xs min-w-[195px]",
+                children: [
+                  e.jsxs("div", {
+                    className: "flex items-center gap-2",
+                    children: [
+                      e.jsx(IconFilter, { className: "size-3.5 text-muted-foreground" }),
+                      e.jsxs("span", { children: [activeOption.label, " (", activeOption.count, ")"] })
+                    ]
+                  }),
+                  e.jsx(IconChevronDown, { className: `size-3.5 text-muted-foreground transition-transform duration-200 ${filterDropdownOpen ? "rotate-180" : ""}` })
+                ]
+              }),
+              filterDropdownOpen ? e.jsxs(e.Fragment, {
+                children: [
+                  e.jsx("div", {
+                    className: "fixed inset-0 z-30",
+                    onClick: () => setFilterDropdownOpen(false)
+                  }),
+                  e.jsx("div", {
+                    className: "absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-border/90 bg-card dark:bg-[#13151c] p-1.5 shadow-2xl space-y-0.5 animate-in fade-in-50",
+                    children: filterOptions.map(opt => {
+                      const isSelected = statusFilter === opt.id;
+                      const OptIcon = opt.icon;
+                      return e.jsxs("button", {
+                        key: opt.id,
+                        type: "button",
+                        onClick: () => {
+                          setStatusFilter(opt.id);
+                          setFilterDropdownOpen(false);
+                        },
+                        className: `w-full flex items-center justify-between px-2.5 py-2 rounded-lg text-xs font-medium transition-colors cursor-pointer ${isSelected ? "bg-secondary text-foreground font-bold" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"}`,
+                        children: [
+                          e.jsxs("div", {
+                            className: "flex items-center gap-2",
+                            children: [
+                              e.jsx(OptIcon, { className: `size-3.5 ${opt.iconColor}` }),
+                              e.jsx("span", { children: opt.label })
+                            ]
+                          }),
+                          e.jsxs("div", {
+                            className: "flex items-center gap-1.5",
+                            children: [
+                              e.jsx("span", { className: "text-[10.5px] font-mono opacity-70", children: `(${opt.count})` }),
+                              isSelected ? e.jsx(IconCheck, { className: "size-3 text-primary" }) : null
+                            ]
+                          })
+                        ]
+                      });
+                    })
+                  })
+                ]
+              }) : null
+            ]
           })
         ]
       }),
@@ -372,7 +430,7 @@ function HealthMatrixPage() {
                   children: e.jsx("td", {
                     colSpan: 5,
                     className: "py-10 text-center text-muted-foreground text-xs font-mono",
-                    children: "No models found matching criteria."
+                    children: "Tidak ada model yang sesuai dengan kriteria filter."
                   })
                 }) :
                 filteredModels.map(m => {
