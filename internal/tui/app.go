@@ -242,6 +242,7 @@ type Model struct {
 	oauthPasteInput   textinput.Model
 	expandedProviders map[string]bool
 	connCursor        int
+	connFocus         bool
 	cachedConns       map[string][]ConnectionItem
 	showDetail        bool
 
@@ -370,6 +371,7 @@ func NewModel(baseURL string) Model {
 		expandedProviders: make(map[string]bool),
 		cachedConns:       make(map[string][]ConnectionItem),
 		connCursor:        -1,
+		connFocus:         false,
 	}
 }
 
@@ -711,7 +713,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 					target := fProvs[m.providerCursor]
 					conns := m.getProviderConns(target)
-					if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor >= 0 && m.connCursor < len(conns) {
+					if len(conns) > 0 && m.connFocus && m.connCursor >= 0 && m.connCursor < len(conns) {
 						targetConn := conns[m.connCursor]
 						err := m.client.DeleteProviderConnection(targetConn.ID)
 						if err != nil {
@@ -721,6 +723,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							if m.connCursor >= len(conns)-1 && m.connCursor > 0 {
 								m.connCursor--
 							}
+							if len(conns) <= 1 {
+								m.connFocus = false
+								m.connCursor = -1
+							}
 						}
 					} else {
 						err := m.client.DeleteProviderConnection(target.ID)
@@ -728,6 +734,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 							m.actionMsg = fmt.Sprintf("✗ Disconnect failed: %v", err)
 						} else {
 							m.actionMsg = fmt.Sprintf("✓ Disconnected all sessions for %s", target.Name)
+							m.connFocus = false
+							m.connCursor = -1
 						}
 					}
 				}
@@ -1224,8 +1232,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					target := fProvs[m.providerCursor]
 					conns := m.getProviderConns(target)
 
-					// If cursor is focused on a child connection, pressing Enter tests that specific connection
-					if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns) {
+					// If already focused inside connections, pressing Enter tests that specific connection
+					if m.connFocus && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns) {
 						selConn := conns[m.connCursor]
 						valid, detail, err := m.client.VerifyProvider(target.ID, target.Protocol, selConn.APIKey)
 						if err != nil {
@@ -1238,18 +1246,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						return m, nil
 					}
 
-					// Otherwise, toggling expand/collapse of the provider
-					m.expandedProviders[target.ID] = !m.expandedProviders[target.ID]
-					if m.expandedProviders[target.ID] {
-						newConns, err := m.client.FetchProviderConnections(target.ID)
-						if err == nil {
-							m.cachedConns[target.ID] = newConns
-						} else {
-							m.cachedConns[target.ID] = target.Connections
-						}
-						m.connCursor = -1 // Start on provider header, Down will enter connection 0
+					// On provider list: Enter opens and focuses into its connections
+					m.expandedProviders[target.ID] = true
+					newConns, err := m.client.FetchProviderConnections(target.ID)
+					if err == nil && len(newConns) > 0 {
+						m.cachedConns[target.ID] = newConns
+						conns = newConns
+					} else if len(target.Connections) > 0 {
+						m.cachedConns[target.ID] = target.Connections
+						conns = target.Connections
+					}
+
+					if len(conns) > 0 {
+						m.connFocus = true
+						m.connCursor = 0
+						m.actionMsg = fmt.Sprintf("▶ Entered connections for %s (↑/↓ to hover, t/Enter to test, d to delete, Esc to exit)", target.Name)
 					} else {
+						m.connFocus = false
 						m.connCursor = -1
+						m.actionMsg = fmt.Sprintf("ℹ No connections configured for %s. Press 'a' to add connection.", target.Name)
 					}
 					return m, nil
 				}
@@ -1314,8 +1329,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInput.Focus()
 				return m, nil
 			}
-			if m.activeTab == tabProviders && m.connCursor >= 0 {
+			if m.activeTab == tabProviders && m.connFocus {
+				m.connFocus = false
 				m.connCursor = -1
+				m.actionMsg = ""
 				return m, nil
 			}
 
@@ -1328,6 +1345,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyAction = keyActionNone
 			m.exportImportAction = 0
 			m.logDetail = false
+			m.connFocus = false
+			m.connCursor = -1
 			if m.activeTab == tabPlayground {
 				m.textInput.Focus()
 			} else {
@@ -1344,6 +1363,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.keyAction = keyActionNone
 			m.exportImportAction = 0
 			m.logDetail = false
+			m.connFocus = false
+			m.connCursor = -1
 			if m.activeTab == tabPlayground {
 				m.textInput.Focus()
 			} else {
@@ -1467,7 +1488,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				conns := m.getProviderConns(target)
 				apiKey := ""
 				targetName := target.Name
-				if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor >= 0 && m.connCursor < len(conns) {
+				if len(conns) > 0 && m.connFocus && m.connCursor >= 0 && m.connCursor < len(conns) {
 					apiKey = conns[m.connCursor].APIKey
 					targetName = fmt.Sprintf("%s (%s)", target.Name, conns[m.connCursor].Name)
 				}
@@ -1575,6 +1596,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.providerCursor = 0
 				m.connCursor = -1
+				m.connFocus = false
 				return m, nil
 			}
 
@@ -1709,6 +1731,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.providerCursor = 0
 				m.connCursor = -1
+				m.connFocus = false
 				return m, nil
 			}
 			if m.activeTab == tabPlayground && !m.pickingModel {
@@ -1733,6 +1756,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				m.providerCursor = 0
 				m.connCursor = -1
+				m.connFocus = false
 				return m, nil
 			}
 			if m.activeTab == tabPlayground && !m.pickingModel {
@@ -1755,26 +1779,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
-						target := fProvs[m.providerCursor]
-						conns := m.getProviderConns(target)
-						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor > 0 {
+					if m.connFocus {
+						if m.connCursor > 0 {
 							m.connCursor--
-							return m, nil
 						}
-						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor == 0 {
-							m.connCursor = -1
-							return m, nil
-						}
+					} else {
 						if m.providerCursor > 0 {
 							m.providerCursor--
-							prevTarget := fProvs[m.providerCursor]
-							prevConns := m.getProviderConns(prevTarget)
-							if m.expandedProviders[prevTarget.ID] && len(prevConns) > 0 {
-								m.connCursor = len(prevConns) - 1
-							} else {
-								m.connCursor = -1
-							}
 						}
 					}
 				case tabPlayground:
@@ -1801,20 +1812,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
-						target := fProvs[m.providerCursor]
-						conns := m.getProviderConns(target)
-						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor == -1 {
-							m.connCursor = 0
-							return m, nil
+					if m.connFocus {
+						if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+							conns := m.getProviderConns(fProvs[m.providerCursor])
+							if m.connCursor < len(conns)-1 {
+								m.connCursor++
+							}
 						}
-						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns)-1 {
-							m.connCursor++
-							return m, nil
-						}
+					} else {
 						if m.providerCursor < len(fProvs)-1 {
 							m.providerCursor++
-							m.connCursor = -1
 						}
 					}
 				case tabPlayground:
@@ -2018,12 +2025,12 @@ func (m Model) renderProviders() string {
 		cursor := "  "
 		style := StyleNormalItem
 		if i == m.providerCursor {
-			if m.connCursor == -1 || !isExp {
+			if !m.connFocus {
 				cursor = "❯ "
 				style = StyleSelectedItem
 			} else {
-				cursor = "● "
-				style = StyleNormalItem
+				cursor = "▼ "
+				style = lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary)
 			}
 		}
 
@@ -2063,7 +2070,7 @@ func (m Model) renderProviders() string {
 			if len(conns) > 0 {
 				for cIdx, c := range conns {
 					connCursor := "    ├─   "
-					isSelected := cIdx == m.connCursor && i == m.providerCursor
+					isSelected := m.connFocus && cIdx == m.connCursor && i == m.providerCursor
 					if isSelected {
 						connCursor = "    ├─ ❯ "
 					}
@@ -2078,7 +2085,11 @@ func (m Model) renderProviders() string {
 						b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Render(cLine) + "\n")
 					}
 				}
-				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    │\n    └─ Actions: [↑/↓] Select Con | [Enter/t] Test | [d] Disconnect | [a] Add Con | [Esc] Parent") + "\n\n")
+				if m.connFocus && i == m.providerCursor {
+					b.WriteString(lipgloss.NewStyle().Foreground(ColorPrimary).Render("    │\n    └─ ▶ FOCUSED: [↑/↓] Select Con | [Enter/t] Test | [d] Disconnect | [Esc] Exit to Providers") + "\n\n")
+				} else {
+					b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    │\n    └─ Actions: [Enter] Focus Connections | [a] Add Con | [d] Disconnect All") + "\n\n")
+				}
 			} else {
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    ├─ (No active connections in pool)") + "\n")
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    └─ Actions: [a] Add Connection") + "\n\n")
@@ -2701,10 +2712,17 @@ func (m Model) renderFooter() string {
 			k1 := StyleHelpKey.Render("y") + StyleHelpDesc.Render(" Confirm Disconnect")
 			k2 := StyleHelpKey.Render("n/Esc") + StyleHelpDesc.Render(" Cancel")
 			return lipgloss.JoinHorizontal(lipgloss.Center, k1, k2)
+		} else if m.connFocus {
+			keys = append(keys, StyleHelpKey.Render("↑/↓")+StyleHelpDesc.Render(" Select Con"))
+			keys = append(keys, StyleHelpKey.Render("Enter/t")+StyleHelpDesc.Render(" Test"))
+			keys = append(keys, StyleHelpKey.Render("d")+StyleHelpDesc.Render(" Disconnect"))
+			keys = append(keys, StyleHelpKey.Render("Esc")+StyleHelpDesc.Render(" Exit to Providers"))
+			keys = append(keys, StyleHelpKey.Render("q")+StyleHelpDesc.Render(" Quit"))
+			return lipgloss.JoinHorizontal(lipgloss.Center, keys...)
 		} else {
 			keys = append(keys, StyleHelpKey.Render("Tab/1-6")+StyleHelpDesc.Render(" Tabs"))
-			keys = append(keys, StyleHelpKey.Render("↑/↓")+StyleHelpDesc.Render(" Select"))
-			keys = append(keys, StyleHelpKey.Render("Enter")+StyleHelpDesc.Render(" Open/Test"))
+			keys = append(keys, StyleHelpKey.Render("↑/↓")+StyleHelpDesc.Render(" Select Provider"))
+			keys = append(keys, StyleHelpKey.Render("Enter")+StyleHelpDesc.Render(" Enter Conns"))
 			keys = append(keys, StyleHelpKey.Render("a")+StyleHelpDesc.Render(" Add"))
 			keys = append(keys, StyleHelpKey.Render("d")+StyleHelpDesc.Render(" Disconnect"))
 			keys = append(keys, StyleHelpKey.Render("t/T")+StyleHelpDesc.Render(" Test"))
