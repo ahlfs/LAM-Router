@@ -348,8 +348,8 @@ function HealthMatrixPage() {
               e.jsxs("button", {
                 type: "button",
                 onClick: () => setFilterDropdownOpen(prev => !prev),
-                className: "inline-flex h-9 items-center justify-between gap-2.5 rounded-lg border border-border/80 hover:bg-secondary/50 px-3 text-xs font-semibold text-foreground transition-all cursor-pointer shadow-2xs min-w-[195px]",
-                style: { backgroundColor: "var(--popover, #181a20)" },
+                className: "inline-flex h-9 items-center justify-between gap-2.5 rounded-lg px-3 text-xs font-semibold text-foreground transition-all cursor-pointer shadow-sm min-w-[195px]",
+                style: { backgroundColor: "var(--surface, #181a20)", border: "1px solid var(--line, rgba(255, 255, 255, 0.12))" },
                 children: [
                   e.jsxs("div", {
                     className: "flex items-center gap-2",
@@ -368,8 +368,8 @@ function HealthMatrixPage() {
                     onClick: () => setFilterDropdownOpen(false)
                   }),
                   e.jsx("div", {
-                    className: "absolute right-0 top-full mt-1.5 z-40 w-56 rounded-xl border border-border p-1.5 shadow-2xl space-y-0.5 animate-in fade-in-50",
-                    style: { backgroundColor: "var(--popover, #12141a)" },
+                    className: "absolute right-0 top-full mt-1.5 z-50 w-60 rounded-xl p-1.5 shadow-2xl space-y-0.5 text-foreground flex flex-col font-sans",
+                    style: { backgroundColor: "color-mix(in srgb, var(--surface) 90%, transparent)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", border: "1px solid var(--line, rgba(255, 255, 255, 0.14))", animation: "pop-in 180ms cubic-bezier(0.23,1,0.32,1) both", transformOrigin: "top right" },
                     children: filterOptions.map(opt => {
                       const isSelected = statusFilter === opt.id;
                       const OptIcon = opt.icon;
@@ -531,8 +531,8 @@ function HealthMatrixPage() {
         className: "fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in-50",
         onClick: () => !isDisabling && setConfirmDisableOpen(false),
         children: e.jsxs("div", {
-          className: "relative flex flex-col w-full max-w-lg rounded-2xl border border-border text-foreground shadow-2xl overflow-hidden font-sans",
-          style: { backgroundColor: "var(--popover, #12141a)" },
+          className: "relative flex flex-col w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden font-sans text-foreground",
+          style: { backgroundColor: "color-mix(in srgb, var(--surface) 94%, transparent)", backdropFilter: "blur(24px)", WebkitBackdropFilter: "blur(24px)", border: "1px solid var(--line, rgba(255, 255, 255, 0.14))" },
           onClick: ev => ev.stopPropagation(),
           children: [
             // Modal Header
