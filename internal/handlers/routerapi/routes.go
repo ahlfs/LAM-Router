@@ -388,6 +388,7 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	// Logs & Quota Domain
 	r.HandleFunc("/v1/logs", h.HandleLogsList)
 	r.HandleFunc("/v1/logs/stats", h.HandleLogsStats)
+	r.HandleFunc("/v1/telemetry/active", h.HandleTelemetryActive)
 	r.HandleFunc("/v1/quota", h.HandleQuotaGet)
 
 	// Health Domain

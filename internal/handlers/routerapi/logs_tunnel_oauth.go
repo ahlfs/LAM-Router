@@ -14,7 +14,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/usagetracker"
 )
+
+// GET /v1/telemetry/active
+func (h *RouterAPIHandler) HandleTelemetryActive(w http.ResponseWriter, r *http.Request) {
+	tracker := usagetracker.GetTracker()
+	state := tracker.GetActiveState(h.repo)
+	handlerutil.WriteJSON(w, http.StatusOK, state)
+}
 
 // GET /v1/logs
 func (h *RouterAPIHandler) HandleLogsList(w http.ResponseWriter, r *http.Request) {
