@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"syscall"
@@ -89,6 +91,16 @@ func main() {
 				Action: func(cCtx *cli.Context) error {
 					cfg := config.LoadConfig()
 					baseURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+
+					// Auto-start embedded background router if not already running
+					if !isServerHealthy(baseURL) {
+						cleanup, err := startEmbeddedServer(cCtx, cfg)
+						if err != nil {
+							return fmt.Errorf("auto-start server for TUI: %w", err)
+						}
+						defer cleanup()
+					}
+
 					return tui.Run(baseURL)
 				},
 			},
@@ -211,23 +223,7 @@ func runServer(cCtx *cli.Context) error {
 
 	updater.StartBackgroundCheck(cCtx.Bool("auto-update"))
 
-	r := chi.NewRouter()
-	r.Use(middleware.RequestID)
-	r.Use(middleware.MaxBody(middleware.DefaultMaxBodySize))
-	r.Use(chiMiddleware.Recoverer)
-
-	r.Use(middleware.RequestLogger)
-
-	// Register RouterAPI v1 REST API for UI dashboard
-	routerapi.RegisterV1Routes(r, repo, ts)
-
-	// Mount standard LAM-Router AI API routes under /v1 for OpenAI/Anthropic/Media
-	r.Route("/v1", func(v1 chi.Router) {
-		handlers.SetupV1ProxyRoutes(v1, repo, ts)
-	})
-
-	handlers.SetupServerRouter(r, repo, ts)
-	webdist.RegisterWebUI(r)
+	r := setupRouter(cfg, repo, ts)
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("LAM-Router (%s) starting on port %d", updater.CurrentVersion, cfg.Port)
@@ -274,4 +270,133 @@ func runServer(cCtx *cli.Context) error {
 		log.Println("Server stopped gracefully")
 	}
 	return nil
+}
+
+func setupRouter(cfg *config.Config, repo *db.Repo, ts *handlers.TokenSaverConfig) *chi.Mux {
+	r := chi.NewRouter()
+	r.Use(middleware.RequestID)
+	r.Use(middleware.MaxBody(middleware.DefaultMaxBodySize))
+	r.Use(chiMiddleware.Recoverer)
+	r.Use(middleware.RequestLogger)
+
+	// Register RouterAPI v1 REST API for UI dashboard
+	routerapi.RegisterV1Routes(r, repo, ts)
+
+	// Mount standard LAM-Router AI API routes under /v1 for OpenAI/Anthropic/Media
+	r.Route("/v1", func(v1 chi.Router) {
+		handlers.SetupV1ProxyRoutes(v1, repo, ts)
+	})
+
+	handlers.SetupServerRouter(r, repo, ts)
+	webdist.RegisterWebUI(r)
+	return r
+}
+
+func isServerHealthy(baseURL string) bool {
+	client := &http.Client{Timeout: 300 * time.Millisecond}
+	resp, err := client.Get(baseURL + "/health")
+	if err == nil && resp != nil {
+		resp.Body.Close()
+		return resp.StatusCode < 400
+	}
+	return false
+}
+
+func startEmbeddedServer(cCtx *cli.Context, cfg *config.Config) (func(), error) {
+	// Redirect logging to file so it doesn't garble Charmbracelet TUI terminal screen
+	logDir := filepath.Join(config.ResolveDataDir(), "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	logFile, err := os.OpenFile(filepath.Join(logDir, "server.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err == nil {
+		log.SetOutput(logFile)
+	} else {
+		log.SetOutput(io.Discard)
+	}
+
+	if err := db.InitGlobalDatabase(cfg.DatabasePath); err != nil {
+		return nil, fmt.Errorf("database init: %w", err)
+	}
+
+	conn, err := db.GetConnection()
+	if err != nil {
+		return nil, fmt.Errorf("database connect: %w", err)
+	}
+
+	repo := db.NewRepo(conn)
+	ts := handlers.NewTokenSaverConfig(cCtx.Bool("rtk"), cCtx.Bool("caveman"), cCtx.Bool("ponytail"))
+	if settings, sErr := repo.GetSettings(); sErr == nil && settings != nil {
+		rtk := settings.RTKEnabled
+		if cCtx.IsSet("rtk") {
+			rtk = cCtx.Bool("rtk")
+		}
+		caveman := settings.CavemanEnabled
+		if cCtx.IsSet("caveman") {
+			caveman = cCtx.Bool("caveman")
+		}
+		ponytail := settings.PonytailEnabled
+		if cCtx.IsSet("ponytail") {
+			ponytail = cCtx.Bool("ponytail")
+		}
+		ts.SetAll(rtk, caveman, ponytail)
+		ts.SetCaveman(caveman, settings.CavemanLevel)
+		ts.SetPonytail(ponytail, settings.PonytailLevel)
+	}
+	ts.SetInjectionGuard(!cCtx.Bool("no-injection-guard"))
+
+	r := setupRouter(cfg, repo, ts)
+
+	addr := fmt.Sprintf("127.0.0.1:%d", cfg.Port)
+	server := &http.Server{
+		Addr:    addr,
+		Handler: r,
+	}
+
+	serverErrCh := make(chan error, 1)
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			serverErrCh <- err
+		}
+	}()
+
+	// Wait for server to be ready
+	baseURL := fmt.Sprintf("http://%s", addr)
+	ready := false
+	for i := 0; i < 30; i++ {
+		select {
+		case err := <-serverErrCh:
+			conn.Close()
+			if logFile != nil {
+				logFile.Close()
+			}
+			return nil, fmt.Errorf("embedded server failed to start: %w", err)
+		default:
+		}
+		if isServerHealthy(baseURL) {
+			ready = true
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	if !ready {
+		_ = server.Close()
+		conn.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
+		return nil, fmt.Errorf("embedded server did not respond on %s within 1.5s", baseURL)
+	}
+
+	cleanup := func() {
+		shutdown.Cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = server.Shutdown(ctx)
+		conn.Close()
+		if logFile != nil {
+			logFile.Close()
+		}
+	}
+
+	return cleanup, nil
 }
