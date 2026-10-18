@@ -1,0 +1,20 @@
+{
+  "name": "lam-router-linux-x64",
+  "version": "1.8.5",
+  "description": "LAM-Router binary for Linux x64",
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "files": [
+    "bin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahlfs/LAM-Router.git"
+  },
+  "author": "ahlfs",
+  "license": "MIT"
+}

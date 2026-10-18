@@ -348,6 +348,82 @@ func TestWrapForAntigravity_ThinkingConfigInjection(t *testing.T) {
 	}
 }
 
+func TestWrapForAntigravity_ClaudePreservesToolIDs(t *testing.T) {
+	// A request with a tool call and response
+	body := []byte(`{
+		"contents": [
+			{
+				"role": "model",
+				"parts": [
+					{
+						"functionCall": {
+							"id": "call_test123",
+							"name": "terminal",
+							"args": {"command": "ls"}
+						}
+					}
+				]
+			},
+			{
+				"role": "user",
+				"parts": [
+					{
+						"functionResponse": {
+							"id": "call_test123",
+							"name": "terminal",
+							"response": {"result": "success"}
+						}
+					}
+				]
+			}
+		]
+	}`)
+
+	// 1. For Claude models, tool IDs must be PRESERVED
+	wrappedClaude, err := translator.WrapForAntigravity(body, "my-project", "claude-opus-4-6-thinking")
+	if err != nil {
+		t.Fatalf("WrapForAntigravity for claude failed: %v", err)
+	}
+	var envClaude struct {
+		Request json.RawMessage `json:"request"`
+	}
+	if err := json.Unmarshal(wrappedClaude, &envClaude); err != nil {
+		t.Fatalf("unmarshal env error: %v", err)
+	}
+	var reqClaude translator.GeminiRequest
+	if err := json.Unmarshal(envClaude.Request, &reqClaude); err != nil {
+		t.Fatalf("unmarshal inner request error: %v", err)
+	}
+	if reqClaude.Contents[0].Parts[0].FunctionCall.ID != "call_test123" {
+		t.Errorf("expected Claude functionCall ID to be preserved as 'call_test123', got %q", reqClaude.Contents[0].Parts[0].FunctionCall.ID)
+	}
+	if reqClaude.Contents[1].Parts[0].FunctionResponse.ID != "call_test123" {
+		t.Errorf("expected Claude functionResponse ID to be preserved as 'call_test123', got %q", reqClaude.Contents[1].Parts[0].FunctionResponse.ID)
+	}
+
+	// 2. For Gemini models, tool IDs must be STRIPPED (otherwise CloudCode rejects)
+	wrappedGemini, err := translator.WrapForAntigravity(body, "my-project", "gemini-3.8-flash-high")
+	if err != nil {
+		t.Fatalf("WrapForAntigravity for gemini failed: %v", err)
+	}
+	var envGemini struct {
+		Request json.RawMessage `json:"request"`
+	}
+	if err := json.Unmarshal(wrappedGemini, &envGemini); err != nil {
+		t.Fatalf("unmarshal env error: %v", err)
+	}
+	var reqGemini translator.GeminiRequest
+	if err := json.Unmarshal(envGemini.Request, &reqGemini); err != nil {
+		t.Fatalf("unmarshal inner request error: %v", err)
+	}
+	if reqGemini.Contents[0].Parts[0].FunctionCall.ID != "" {
+		t.Errorf("expected Gemini functionCall ID to be stripped, got %q", reqGemini.Contents[0].Parts[0].FunctionCall.ID)
+	}
+	if reqGemini.Contents[1].Parts[0].FunctionResponse.ID != "" {
+		t.Errorf("expected Gemini functionResponse ID to be stripped, got %q", reqGemini.Contents[1].Parts[0].FunctionResponse.ID)
+	}
+}
+
 
 
 

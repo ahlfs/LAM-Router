@@ -371,6 +371,46 @@ func stripAntigravityIDs(req *GeminiRequest) {
 	}
 }
 
+// ensureAntigravityClaudeIDs preserves and validates tool call IDs for Claude models.
+// Claude models forwarded by Antigravity to Vertex AI Anthropic strictly require
+// non-empty tool_use.id and matching tool_result.tool_use_id.
+func ensureAntigravityClaudeIDs(req *GeminiRequest) {
+	if req == nil {
+		return
+	}
+	nameToID := make(map[string]string)
+	idCounter := 1
+
+	for i := range req.Contents {
+		for j := range req.Contents[i].Parts {
+			p := &req.Contents[i].Parts[j]
+			if p.FunctionCall != nil {
+				if p.FunctionCall.ID == "" {
+					p.FunctionCall.ID = fmt.Sprintf("toolu_%04d_%d", idCounter, j)
+					idCounter++
+				}
+				nameToID[p.FunctionCall.Name] = p.FunctionCall.ID
+			}
+		}
+	}
+
+	for i := range req.Contents {
+		for j := range req.Contents[i].Parts {
+			p := &req.Contents[i].Parts[j]
+			if p.FunctionResponse != nil {
+				if p.FunctionResponse.ID == "" {
+					if id, ok := nameToID[p.FunctionResponse.Name]; ok && id != "" {
+						p.FunctionResponse.ID = id
+					} else {
+						p.FunctionResponse.ID = fmt.Sprintf("toolu_%04d_%d", idCounter, j)
+						idCounter++
+					}
+				}
+			}
+		}
+	}
+}
+
 // WrapForAntigravity wraps a standard Gemini request in Antigravity API envelope.
 func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte, error) {
 	// Resolve thinking level from original model name BEFORE normalizing
@@ -388,7 +428,11 @@ func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte,
 			cloaked, _ := CloakAntigravityRequest(cleanedReq, "")
 			cleanedReq = cloaked
 		}
-		stripAntigravityIDs(cleanedReq)
+		if strings.Contains(strings.ToLower(modelName), "claude") {
+			ensureAntigravityClaudeIDs(cleanedReq)
+		} else {
+			stripAntigravityIDs(cleanedReq)
+		}
 		if cloakedBytes, err := json.Marshal(cleanedReq); err == nil {
 			geminiBody = cloakedBytes
 		}

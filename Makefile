@@ -9,11 +9,23 @@ AUTO_UPDATE ?= false
 
 LDFLAGS := -s -w -X 'lamrouter/internal/updater.CurrentVersion=$(VERSION)'
 
-.PHONY: build install run dev version update test test-short vet bench bench-go cross mitm-enable mitm-disable mitm-status docker docker-build clean help
+.PHONY: build install run dev version update test test-short vet bench bench-go cross mitm-enable mitm-disable mitm-status docker docker-build clean help npm-build npm-pack npm-publish
 
 ## build — compile binary with embedded webdist assets
 build:
 	go build -ldflags="$(LDFLAGS)" -o bin/$(BINARY_NAME) ./cmd/lamrouter/
+
+## npm-build — cross-compile all 5 platform binaries for npm distribution
+npm-build:
+	@bash scripts/build-npm.sh
+
+## npm-pack — build and pack local tarballs for npm testing
+npm-pack:
+	@bash scripts/build-npm.sh --pack
+
+## npm-publish — cross-compile and publish all packages to NPM registry
+npm-publish:
+	@bash scripts/build-npm.sh --publish
 
 ## build-ui — build web frontend and sync assets to internal/webdist/dist
 build-ui:
@@ -112,15 +124,7 @@ docker-build:
 
 ## clean — remove build artifacts
 clean:
-	rm -f $(BINARY_NAME) $(BINARY_NAME)-* bin/$(BINARY_NAME) bin/lamrouter npm/*.tgz
-
-## npm-pack — test package npm locally without publishing
-npm-pack:
-	cd npm && npm pack
-
-## npm-publish — publish package to npmjs.org
-npm-publish:
-	cd npm && npm publish --access public
+	rm -f $(BINARY_NAME) $(BINARY_NAME)-* bin/$(BINARY_NAME) bin/lamrouter npm/*.tgz npm/platforms/*/*.tgz
 
 ## help — show targets
 help:

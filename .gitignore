@@ -5,7 +5,8 @@
 /lamrouter-*
 /9router-go
 /9router-go-*
-bin/
+/bin/
+!/npm/bin/
 *.exe
 *.dll
 *.so
@@ -13,6 +14,8 @@ bin/
 
 # NPM artifacts & packages
 npm/*.tgz
+npm/platforms/*/*.tgz
+npm/platforms/*/bin/
 *.tgz
 npm/node_modules/
 
