@@ -250,3 +250,60 @@ func TestHealthHandlers_RouterRegistration(t *testing.T) {
 		t.Fatalf("expected 200 via router, got %d", rec.Code)
 	}
 }
+
+func TestHealthHandlers_DisableOffline(t *testing.T) {
+	dbConn, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("failed to open sqlite: %v", err)
+	}
+	defer dbConn.Close()
+
+	h := &RouterAPIHandler{db: dbConn}
+	_ = InitSchema(dbConn)
+	_ = h.InitHealthSchema()
+
+	// 1. Seed an offline model in model_health
+	_ = h.UpsertModelHealth(ModelHealthRecord{
+		ModelID:       "openrouter/dead-model",
+		ProviderID:    "openrouter",
+		Status:        "offline",
+		LatencyMs:     0,
+		StatusCode:    404,
+		LastError:     "Model not found",
+		LastCheckedAt: 123456,
+	})
+
+	// 2. Call HandleModelsHealthDisableOffline
+	req := httptest.NewRequest(http.MethodPost, "/v1/health/models/disable-offline", nil)
+	rec := httptest.NewRecorder()
+	h.HandleModelsHealthDisableOffline(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp struct {
+		Success        bool     `json:"success"`
+		DisabledCount  int      `json:"disabled_count"`
+		DisabledModels []string `json:"disabled_models"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	if !resp.Success || resp.DisabledCount != 1 || len(resp.DisabledModels) != 1 {
+		t.Fatalf("expected 1 disabled model, got %+v", resp)
+	}
+
+	// 3. Verify in provider_models is_active = 0
+	var isActive int = -1
+	_ = dbConn.QueryRow(`SELECT is_active FROM provider_models WHERE model_id = 'openrouter/dead-model'`).Scan(&isActive)
+	if isActive != 0 {
+		t.Errorf("expected is_active=0 in provider_models, got %d", isActive)
+	}
+
+	// 4. Verify in disabled_models
+	var cnt int
+	_ = dbConn.QueryRow(`SELECT COUNT(*) FROM disabled_models WHERE model_id = 'openrouter/dead-model'`).Scan(&cnt)
+	if cnt != 1 {
+		t.Errorf("expected model in disabled_models, got count %d", cnt)
+	}
+}

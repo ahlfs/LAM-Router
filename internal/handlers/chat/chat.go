@@ -308,8 +308,24 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	seen := make(map[string]bool)
 	now := time.Now().Unix()
 
+	rawDB := h.Repo.RawDB()
+	disabledSet := make(map[string]bool)
+	if rawDB != nil {
+		drows, err := rawDB.Query(`SELECT model_id FROM disabled_models UNION SELECT model_id FROM provider_models WHERE is_active = 0`)
+		if err == nil {
+			for drows.Next() {
+				var mid string
+				if err := drows.Scan(&mid); err == nil && mid != "" {
+					disabledSet[mid] = true
+					disabledSet[strings.ToLower(mid)] = true
+				}
+			}
+			drows.Close()
+		}
+	}
+
 	addModel := func(id, ownedBy string, ctxLen, maxOut int) {
-		if id == "" || seen[id] {
+		if id == "" || seen[id] || disabledSet[id] || disabledSet[strings.ToLower(id)] {
 			return
 		}
 		seen[id] = true
@@ -342,7 +358,6 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 2. Dynamic Combos from fallback_rules table (created via UI Combo tab)
-	rawDB := h.Repo.RawDB()
 	if rawDB != nil {
 		fbRows, err := rawDB.Query(`SELECT DISTINCT source_model FROM fallback_rules WHERE enabled = 1`)
 		if err == nil {

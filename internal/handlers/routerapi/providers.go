@@ -1865,6 +1865,12 @@ func (h *RouterAPIHandler) HandleProviderModelToggle(w http.ResponseWriter, r *h
 		return
 	}
 
+	if isActive {
+		_, _ = h.db.Exec(`DELETE FROM disabled_models WHERE model_id = ?`, modelID)
+	} else {
+		_, _ = h.db.Exec(`INSERT OR REPLACE INTO disabled_models (model_id, provider_id, reason, disabled_at) VALUES (?, ?, 'manual_toggle', ?)`, modelID, providerID, now)
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"success":    true,
 		"providerId": providerID,
