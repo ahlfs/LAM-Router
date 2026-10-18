@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/spinner"
@@ -41,6 +42,11 @@ const (
 	provActionAddConn
 	provActionOAuth
 	provActionDeleteConfirm
+)
+
+var (
+	activeOAuthSrvLock sync.Mutex
+	activeOAuthSrv     *http.Server
 )
 
 type oauthCallbackMsg struct {
@@ -523,11 +529,24 @@ func listenForOAuthCallbackCmd(provider string) tea.Cmd {
 			port = "51121"
 		}
 
+		// Close any previous active listener server to free the port immediately
+		activeOAuthSrvLock.Lock()
+		if activeOAuthSrv != nil {
+			_ = activeOAuthSrv.Close()
+			activeOAuthSrv = nil
+		}
+		activeOAuthSrvLock.Unlock()
+
 		mux := http.NewServeMux()
 		srv := &http.Server{
 			Addr:    "127.0.0.1:" + port,
 			Handler: mux,
 		}
+
+		activeOAuthSrvLock.Lock()
+		activeOAuthSrv = srv
+		activeOAuthSrvLock.Unlock()
+
 		ch := make(chan oauthCallbackMsg, 1)
 
 		cbHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -542,7 +561,12 @@ func listenForOAuthCallbackCmd(provider string) tea.Cmd {
 			ch <- oauthCallbackMsg{code: qCode, state: qState}
 			go func() {
 				time.Sleep(500 * time.Millisecond)
-				_ = srv.Shutdown(context.Background())
+				_ = srv.Close()
+				activeOAuthSrvLock.Lock()
+				if activeOAuthSrv == srv {
+					activeOAuthSrv = nil
+				}
+				activeOAuthSrvLock.Unlock()
 			}()
 		}
 
@@ -562,7 +586,12 @@ func listenForOAuthCallbackCmd(provider string) tea.Cmd {
 		case res := <-ch:
 			return res
 		case <-time.After(3 * time.Minute):
-			_ = srv.Shutdown(context.Background())
+			_ = srv.Close()
+			activeOAuthSrvLock.Lock()
+			if activeOAuthSrv == srv {
+				activeOAuthSrv = nil
+			}
+			activeOAuthSrvLock.Unlock()
 			return oauthCallbackMsg{err: fmt.Errorf("OAuth login timed out")}
 		}
 	}
@@ -618,8 +647,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case oauthCallbackMsg:
 		if msg.err != nil {
+			if m.provAction == provActionOAuth {
+				m.actionMsg = "ℹ Auto-capture nonaktif (port 51121 busy) — silakan paste URL redirect di bawah."
+				return m, nil
+			}
 			m.actionMsg = fmt.Sprintf("✗ OAuth error: %v", msg.err)
-			m.provAction = provActionNone
 			return m, nil
 		}
 		email, err := m.client.ExchangeOAuthCallback(m.oauthProvider, msg.code, msg.state, "")
@@ -670,11 +702,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.activeTab == tabProviders && m.provAction == provActionOAuth {
 			if msg.String() == "esc" {
+				activeOAuthSrvLock.Lock()
+				if activeOAuthSrv != nil {
+					_ = activeOAuthSrv.Close()
+					activeOAuthSrv = nil
+				}
+				activeOAuthSrvLock.Unlock()
 				m.provAction = provActionNone
 				m.oauthPasteInput.Reset()
 				return m, nil
 			}
 			if isEnter {
+				activeOAuthSrvLock.Lock()
+				if activeOAuthSrv != nil {
+					_ = activeOAuthSrv.Close()
+					activeOAuthSrv = nil
+				}
+				activeOAuthSrvLock.Unlock()
+
 				pasteVal := strings.TrimSpace(m.oauthPasteInput.Value())
 				if pasteVal != "" {
 					var code, state string
