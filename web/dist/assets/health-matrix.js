@@ -23,7 +23,7 @@ function formatRelativeTime(timestamp) {
 }
 
 function LatencyBadge({ latency }) {
-  if (latency <= 0) return e.jsx("span", { className: "text-muted-foreground/60 font-mono text-xs", children: "--" });
+  if (latency <= 0) return e.jsx("span", { className: "text-muted-foreground/50 font-mono text-xs", children: "--" });
   let colorClass = "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
   if (latency > 800) {
     colorClass = "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
@@ -32,7 +32,7 @@ function LatencyBadge({ latency }) {
   }
   return e.jsxs("span", {
     className: `inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-mono font-bold ${colorClass}`,
-    children: [e.jsx(IconZap, { className: "size-3" }), `${latency} ms`]
+    children: [e.jsx(IconZap, { className: "size-3 shrink-0" }), `${latency} ms`]
   });
 }
 
@@ -40,24 +40,24 @@ function StatusBadge({ status, statusCode }) {
   if (status === "healthy") {
     return e.jsxs("span", {
       className: "inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400",
-      children: [e.jsx(IconCheckCircle, { className: "size-3.5" }), "HEALTHY"]
+      children: [e.jsx(IconCheckCircle, { className: "size-3.5 shrink-0" }), "HEALTHY"]
     });
   }
   if (status === "offline") {
     return e.jsxs("span", {
       className: "inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600 dark:text-rose-400",
-      children: [e.jsx(IconAlertCircle, { className: "size-3.5" }), statusCode ? `OFFLINE (${statusCode})` : "OFFLINE"]
+      children: [e.jsx(IconAlertCircle, { className: "size-3.5 shrink-0" }), statusCode ? `OFFLINE (${statusCode})` : "OFFLINE"]
     });
   }
   if (status === "probing") {
     return e.jsxs("span", {
       className: "inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-bold text-sky-600 dark:text-sky-400",
-      children: [e.jsx(IconRefreshCw, { className: "size-3.5 animate-spin" }), "PROBING"]
+      children: [e.jsx(IconRefreshCw, { className: "size-3.5 shrink-0 animate-spin" }), "PROBING"]
     });
   }
   return e.jsxs("span", {
     className: "inline-flex items-center gap-1.5 rounded-full border border-border/80 bg-secondary/50 px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground",
-    children: [e.jsx(IconHelpCircle, { className: "size-3.5" }), "UNTESTED"]
+    children: [e.jsx(IconHelpCircle, { className: "size-3.5 shrink-0" }), "UNTESTED"]
   });
 }
 
@@ -141,7 +141,7 @@ function HealthMatrixPage() {
   }, [models, search, statusFilter]);
 
   return e.jsxs("div", {
-    className: "mx-auto w-full max-w-6xl space-y-6 font-sans pb-12",
+    className: "mx-auto w-full max-w-6xl space-y-5 font-sans pb-12",
     children: [
       // Header Section
       e.jsxs("header", {
@@ -282,11 +282,11 @@ function HealthMatrixPage() {
         ]
       }),
 
-      // DESKTOP VIEW: Data Table (Hidden on mobile)
+      // UNIFIED GRID ROW TABLE (Single clean, non-bloated, space-efficient table view)
       e.jsx("div", {
-        className: "hidden md:block overflow-hidden rounded-xl border border-border/80 bg-card shadow-2xs",
+        className: "overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs",
         children: e.jsxs("table", {
-          className: "w-full text-left border-collapse text-xs",
+          className: "w-full text-left border-collapse text-xs min-w-[620px]",
           children: [
             e.jsx("thead", {
               className: "border-b border-border/80 bg-secondary/40 text-muted-foreground uppercase text-[10px] font-bold tracking-wider",
@@ -355,7 +355,7 @@ function HealthMatrixPage() {
                           type: "button",
                           onClick: () => handleProbeSingle(m.model_id),
                           disabled: isProbing || isProbingAll,
-                          className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border/80 bg-secondary/50 hover:bg-secondary px-2.5 text-xs font-semibold text-foreground transition-all cursor-pointer disabled:opacity-40",
+                          className: "inline-flex h-8 items-center justify-center gap-1 rounded-md border border-border/80 bg-secondary/50 hover:bg-secondary px-3 text-xs font-semibold text-foreground transition-all cursor-pointer disabled:opacity-40",
                           children: [
                             e.jsx(IconZap, { className: `size-3 text-primary ${isProbing ? "animate-spin" : ""}` }),
                             e.jsx("span", { children: isProbing ? "Testing..." : "Test" })
@@ -368,78 +368,6 @@ function HealthMatrixPage() {
             })
           ]
         })
-      }),
-
-      // MOBILE VIEW: Stacked Responsive Cards (Hidden on desktop, >=44px touch targets)
-      e.jsx("div", {
-        className: "md:hidden space-y-3",
-        children: filteredModels.length === 0 ?
-          e.jsx("div", {
-            className: "rounded-xl border border-border/80 bg-card p-8 text-center text-xs text-muted-foreground font-mono",
-            children: "No models found."
-          }) :
-          filteredModels.map(m => {
-            const isProbing = probingModels.has(m.model_id);
-            const effectiveStatus = isProbing ? "probing" : m.status;
-            return e.jsxs("div", {
-              key: m.model_id,
-              className: "rounded-xl border border-border/80 bg-card p-4 space-y-3 shadow-2xs",
-              children: [
-                e.jsxs("div", {
-                  className: "flex items-start justify-between gap-2 border-b border-border/60 pb-3",
-                  children: [
-                    e.jsxs("div", {
-                      className: "flex items-center gap-2 min-w-0 font-mono",
-                      children: [
-                        e.jsx(H, { providerId: m.provider_id || "custom", className: "size-4.5 shrink-0" }),
-                        e.jsxs("div", {
-                          className: "min-w-0",
-                          children: [
-                            e.jsx("div", { className: "text-xs font-bold text-foreground truncate", children: m.model_id }),
-                            e.jsx("div", { className: "text-[10px] text-muted-foreground uppercase", children: m.provider_id })
-                          ]
-                        })
-                      ]
-                    }),
-                    e.jsx(StatusBadge, { status: effectiveStatus, statusCode: m.status_code })
-                  ]
-                }),
-                e.jsxs("div", {
-                  className: "flex items-center justify-between text-xs",
-                  children: [
-                    e.jsxs("div", {
-                      className: "flex items-center gap-1.5",
-                      children: [
-                        e.jsx("span", { className: "text-muted-foreground text-[11px]", children: "Latency:" }),
-                        e.jsx(LatencyBadge, { latency: m.latency_ms })
-                      ]
-                    }),
-                    e.jsxs("div", {
-                      className: "text-[11px] text-muted-foreground",
-                      children: [
-                        e.jsx(IconClock, { className: "inline size-3 mr-1 -mt-0.5" }),
-                        formatRelativeTime(m.last_checked_at)
-                      ]
-                    })
-                  ]
-                }),
-                m.last_error ? e.jsxs("div", {
-                  className: "rounded-lg border border-rose-500/20 bg-rose-500/10 p-2 text-[11px] text-rose-500",
-                  children: ["Error: ", m.last_error]
-                }) : null,
-                e.jsxs("button", {
-                  type: "button",
-                  onClick: () => handleProbeSingle(m.model_id),
-                  disabled: isProbing || isProbingAll,
-                  className: "w-full h-11 flex items-center justify-center gap-1.5 rounded-lg border border-border/80 bg-secondary/60 hover:bg-secondary text-xs font-semibold text-foreground transition-all cursor-pointer active:scale-[0.98] disabled:opacity-40",
-                  children: [
-                    e.jsx(IconZap, { className: `size-3.5 text-primary ${isProbing ? "animate-spin" : ""}` }),
-                    e.jsx("span", { children: isProbing ? "Testing Model..." : "Test Model" })
-                  ]
-                })
-              ]
-            });
-          })
       })
     ]
   });
