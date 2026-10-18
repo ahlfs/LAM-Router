@@ -2020,12 +2020,37 @@ func (m Model) renderProviders() string {
 		if m.oauthProvider == "antigravity" {
 			oauthPort = "51121"
 		}
-		shortURL := m.client.BaseURL() + "/v1/auth/" + m.oauthProvider + "/open"
+
+		// Detect base URL for public/SSH access
+		redirectBase := m.client.BaseURL()
+		var sshRemoteURL string
+		if strings.Contains(redirectBase, "127.0.0.1") || strings.Contains(redirectBase, "localhost") {
+			if pub := os.Getenv("PUBLIC_URL"); pub != "" {
+				redirectBase = strings.TrimRight(pub, "/")
+			} else if lamU := os.Getenv("LAM_ROUTER_URL"); lamU != "" {
+				redirectBase = strings.TrimRight(lamU, "/")
+			} else if sshConn := os.Getenv("SSH_CONNECTION"); sshConn != "" {
+				parts := strings.Fields(sshConn)
+				if len(parts) >= 3 {
+					serverIP := parts[2]
+					sshRemoteURL = fmt.Sprintf("http://%s:9898/v1/auth/%s/open", serverIP, m.oauthProvider)
+				}
+			}
+		}
+		shortURL := redirectBase + "/v1/auth/" + m.oauthProvider + "/open"
+
+		// OSC 8 clickable hyperlink for terminals: click directly without copying!
+		googleClickable := fmt.Sprintf("\x1b]8;;%s\x1b\\👉 [KLIK DI SINI UNTUK LOGIN GOOGLE (Ctrl+Click / Cmd+Click)]\x1b]8;;\x1b\\", m.oauthAuthURL)
+
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(fmt.Sprintf("── 🔐 OAUTH LOGIN: %s ──", strings.Title(m.oauthProvider))) + "\n\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("1. Buka salah satu link ini di browser untuk mengotorisasi akun:") + "\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true).Render("👉 Link Cepat (Auto-Redirect): "+shortURL) + "\n\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("Atau link langsung Google (pastikan ter-copy utuh):") + "\n")
-		b.WriteString(lipgloss.NewStyle().Foreground(ColorSecondary).Render(m.oauthAuthURL) + "\n\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Bold(true).Render("1. Otorisasi Akun Google:") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorSuccess).Bold(true).Render(googleClickable) + "\n\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Render("Atau buka Link Pendek Auto-Redirect:") + "\n")
+		b.WriteString(lipgloss.NewStyle().Foreground(ColorSecondary).Render("👉 "+shortURL) + "\n")
+		if sshRemoteURL != "" && sshRemoteURL != shortURL {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("   (Via SSH Remote IP: "+sshRemoteURL+")") + "\n")
+		}
+		b.WriteString("\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorWarning).Render(fmt.Sprintf("⏳ Port :%s aktif mendengarkan redirect browser otomatis...", oauthPort)) + "\n\n")
 		b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Render("2. Setelah login, copy URL redirect dari address bar browser lalu paste di sini:") + "\n")
 		b.WriteString(m.oauthPasteInput.View() + "\n\n")

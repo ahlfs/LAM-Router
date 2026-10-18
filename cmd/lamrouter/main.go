@@ -88,12 +88,26 @@ func main() {
 				Name:    "tui",
 				Aliases: []string{"menu", "ui"},
 				Usage:   "Launch interactive Charmbracelet Terminal UI dashboard",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "url",
+						Aliases: []string{"base-url", "u"},
+						Usage:   "Target router base URL (e.g. https://lam-router.buatjalan.xyz)",
+					},
+				},
 				Action: func(cCtx *cli.Context) error {
 					cfg := config.LoadConfig()
 					baseURL := fmt.Sprintf("http://127.0.0.1:%d", cfg.Port)
+					if u := cCtx.String("url"); u != "" {
+						baseURL = strings.TrimRight(u, "/")
+					} else if cCtx.NArg() > 0 && strings.HasPrefix(cCtx.Args().First(), "http") {
+						baseURL = strings.TrimRight(cCtx.Args().First(), "/")
+					} else if envU := os.Getenv("LAM_ROUTER_URL"); envU != "" {
+						baseURL = strings.TrimRight(envU, "/")
+					}
 
-					// Auto-start embedded background router if not already running
-					if !isServerHealthy(baseURL) {
+					// Auto-start embedded background router if not already running (only when connecting to localhost)
+					if (strings.Contains(baseURL, "127.0.0.1") || strings.Contains(baseURL, "localhost")) && !isServerHealthy(baseURL) {
 						cleanup, err := startEmbeddedServer(cCtx, cfg)
 						if err != nil {
 							return fmt.Errorf("auto-start server for TUI: %w", err)
