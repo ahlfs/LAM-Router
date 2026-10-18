@@ -369,6 +369,7 @@ func NewModel(baseURL string) Model {
 		expandedCombos:    make(map[string]bool),
 		expandedProviders: make(map[string]bool),
 		cachedConns:       make(map[string][]ConnectionItem),
+		connCursor:        -1,
 	}
 }
 
@@ -406,6 +407,14 @@ func (m Model) fetchDataCmd() tea.Cmd {
 			cacheStats: cache,
 		}
 	}
+}
+
+func (m Model) getProviderConns(p ProviderItem) []ConnectionItem {
+	conns := m.cachedConns[p.ID]
+	if len(conns) == 0 && len(p.Connections) > 0 {
+		return p.Connections
+	}
+	return conns
 }
 
 func (m Model) getFilteredProviders() []ProviderItem {
@@ -701,14 +710,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y":
 				if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 					target := fProvs[m.providerCursor]
-					conns := m.cachedConns[target.ID]
-					if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor < len(conns) {
+					conns := m.getProviderConns(target)
+					if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor >= 0 && m.connCursor < len(conns) {
 						targetConn := conns[m.connCursor]
 						err := m.client.DeleteProviderConnection(targetConn.ID)
 						if err != nil {
 							m.actionMsg = fmt.Sprintf("✗ Disconnect failed: %v", err)
 						} else {
 							m.actionMsg = fmt.Sprintf("✓ Disconnected session '%s'", targetConn.Name)
+							if m.connCursor >= len(conns)-1 && m.connCursor > 0 {
+								m.connCursor--
+							}
 						}
 					} else {
 						err := m.client.DeleteProviderConnection(target.ID)
@@ -1210,15 +1222,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case tabProviders:
 				if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 					target := fProvs[m.providerCursor]
+					conns := m.getProviderConns(target)
+
+					// If cursor is focused on a child connection, pressing Enter tests that specific connection
+					if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns) {
+						selConn := conns[m.connCursor]
+						valid, detail, err := m.client.VerifyProvider(target.ID, target.Protocol, selConn.APIKey)
+						if err != nil {
+							m.actionMsg = fmt.Sprintf("✗ %s (%s) test error: %v", target.Name, selConn.Name, err)
+						} else if valid {
+							m.actionMsg = fmt.Sprintf("✓ %s (%s) verified OK (%s)", target.Name, selConn.Name, detail)
+						} else {
+							m.actionMsg = fmt.Sprintf("✗ %s (%s) inactive (%s)", target.Name, selConn.Name, detail)
+						}
+						return m, nil
+					}
+
+					// Otherwise, toggling expand/collapse of the provider
 					m.expandedProviders[target.ID] = !m.expandedProviders[target.ID]
 					if m.expandedProviders[target.ID] {
-						conns, err := m.client.FetchProviderConnections(target.ID)
+						newConns, err := m.client.FetchProviderConnections(target.ID)
 						if err == nil {
-							m.cachedConns[target.ID] = conns
+							m.cachedConns[target.ID] = newConns
 						} else {
 							m.cachedConns[target.ID] = target.Connections
 						}
-						m.connCursor = 0
+						m.connCursor = -1 // Start on provider header, Down will enter connection 0
+					} else {
+						m.connCursor = -1
 					}
 					return m, nil
 				}
@@ -1281,6 +1312,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.activeTab == tabPlayground && m.pickingModel {
 				m.pickingModel = false
 				m.textInput.Focus()
+				return m, nil
+			}
+			if m.activeTab == tabProviders && m.connCursor >= 0 {
+				m.connCursor = -1
 				return m, nil
 			}
 
@@ -1429,10 +1464,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "t":
 			if m.activeTab == tabProviders && len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 				target := fProvs[m.providerCursor]
-				conns := m.cachedConns[target.ID]
+				conns := m.getProviderConns(target)
 				apiKey := ""
 				targetName := target.Name
-				if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor < len(conns) {
+				if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor >= 0 && m.connCursor < len(conns) {
 					apiKey = conns[m.connCursor].APIKey
 					targetName = fmt.Sprintf("%s (%s)", target.Name, conns[m.connCursor].Name)
 				}
@@ -1468,7 +1503,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "T", "A":
 			if m.activeTab == tabProviders && len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 				target := fProvs[m.providerCursor]
-				conns := m.cachedConns[target.ID]
+				conns := m.getProviderConns(target)
 				if len(conns) == 0 {
 					conns, _ = m.client.FetchProviderConnections(target.ID)
 					m.cachedConns[target.ID] = conns
@@ -1491,17 +1526,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "[":
 			if m.activeTab == tabProviders && len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 				target := fProvs[m.providerCursor]
-				if m.expandedProviders[target.ID] && m.connCursor > 0 {
-					m.connCursor--
-					return m, nil
+				conns := m.getProviderConns(target)
+				if m.expandedProviders[target.ID] && len(conns) > 0 {
+					if m.connCursor > 0 {
+						m.connCursor--
+						return m, nil
+					} else if m.connCursor == 0 {
+						m.connCursor = -1
+						return m, nil
+					}
 				}
 			}
 
 		case "]":
 			if m.activeTab == tabProviders && len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 				target := fProvs[m.providerCursor]
-				conns := m.cachedConns[target.ID]
-				if m.expandedProviders[target.ID] && m.connCursor < len(conns)-1 {
+				conns := m.getProviderConns(target)
+				if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor < len(conns)-1 {
 					m.connCursor++
 					return m, nil
 				}
@@ -1533,6 +1574,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.providerFilter = "all"
 				}
 				m.providerCursor = 0
+				m.connCursor = -1
 				return m, nil
 			}
 
@@ -1666,6 +1708,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.providerFilter = "free_tier"
 				}
 				m.providerCursor = 0
+				m.connCursor = -1
 				return m, nil
 			}
 			if m.activeTab == tabPlayground && !m.pickingModel {
@@ -1689,6 +1732,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.providerFilter = "all"
 				}
 				m.providerCursor = 0
+				m.connCursor = -1
 				return m, nil
 			}
 			if m.activeTab == tabPlayground && !m.pickingModel {
@@ -1711,8 +1755,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if m.providerCursor > 0 {
-						m.providerCursor--
+					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+						target := fProvs[m.providerCursor]
+						conns := m.getProviderConns(target)
+						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor > 0 {
+							m.connCursor--
+							return m, nil
+						}
+						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor == 0 {
+							m.connCursor = -1
+							return m, nil
+						}
+						if m.providerCursor > 0 {
+							m.providerCursor--
+							prevTarget := fProvs[m.providerCursor]
+							prevConns := m.getProviderConns(prevTarget)
+							if m.expandedProviders[prevTarget.ID] && len(prevConns) > 0 {
+								m.connCursor = len(prevConns) - 1
+							} else {
+								m.connCursor = -1
+							}
+						}
 					}
 				case tabPlayground:
 					if m.pickingModel && m.modelCursor > 0 {
@@ -1738,8 +1801,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.showDetail = false
 				switch m.activeTab {
 				case tabProviders:
-					if m.providerCursor < len(fProvs)-1 {
-						m.providerCursor++
+					if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
+						target := fProvs[m.providerCursor]
+						conns := m.getProviderConns(target)
+						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor == -1 {
+							m.connCursor = 0
+							return m, nil
+						}
+						if m.expandedProviders[target.ID] && len(conns) > 0 && m.connCursor >= 0 && m.connCursor < len(conns)-1 {
+							m.connCursor++
+							return m, nil
+						}
+						if m.providerCursor < len(fProvs)-1 {
+							m.providerCursor++
+							m.connCursor = -1
+						}
 					}
 				case tabPlayground:
 					if m.pickingModel && m.modelCursor < len(m.models)-1 {
@@ -1911,9 +1987,9 @@ func (m Model) renderProviders() string {
 		fProvs := m.getFilteredProviders()
 		if len(fProvs) > 0 && m.providerCursor < len(fProvs) {
 			target := fProvs[m.providerCursor]
-			conns := m.cachedConns[target.ID]
+			conns := m.getProviderConns(target)
 			desc := fmt.Sprintf("all %d linked accounts for '%s'", target.ConnectedCount, target.Name)
-			if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor < len(conns) {
+			if len(conns) > 0 && m.expandedProviders[target.ID] && m.connCursor >= 0 && m.connCursor < len(conns) {
 				desc = fmt.Sprintf("session '%s' (%s)", conns[m.connCursor].Name, target.Name)
 			}
 			confirmBox := StyleCardHighlight.Width(66).Render(
@@ -1937,12 +2013,18 @@ func (m Model) renderProviders() string {
 
 	for i := start; i < end; i++ {
 		p := fProvs[i]
+		isExp := m.expandedProviders[p.ID]
 
 		cursor := "  "
 		style := StyleNormalItem
 		if i == m.providerCursor {
-			cursor = "❯ "
-			style = StyleSelectedItem
+			if m.connCursor == -1 || !isExp {
+				cursor = "❯ "
+				style = StyleSelectedItem
+			} else {
+				cursor = "● "
+				style = StyleNormalItem
+			}
 		}
 
 		nameW := 26
@@ -1967,7 +2049,6 @@ func (m Model) renderProviders() string {
 			cat = fmt.Sprintf("(%s)", p.Category)
 		}
 
-		isExp := m.expandedProviders[p.ID]
 		expandPill := lipgloss.NewStyle().Foreground(ColorMuted).Render("▸ [Enter: Conns]")
 		if isExp {
 			expandPill = lipgloss.NewStyle().Foreground(ColorPrimary).Render("▾ [Enter: Close]")
@@ -1977,15 +2058,13 @@ func (m Model) renderProviders() string {
 		b.WriteString(style.Render(line) + "\n")
 
 		if isExp {
-			conns := m.cachedConns[p.ID]
-			if len(conns) == 0 && len(p.Connections) > 0 {
-				conns = p.Connections
-			}
+			conns := m.getProviderConns(p)
 
 			if len(conns) > 0 {
 				for cIdx, c := range conns {
 					connCursor := "    ├─   "
-					if cIdx == m.connCursor && i == m.providerCursor {
+					isSelected := cIdx == m.connCursor && i == m.providerCursor
+					if isSelected {
 						connCursor = "    ├─ ❯ "
 					}
 					cStatus := lipgloss.NewStyle().Foreground(ColorSuccess).Render("[ACTIVE]")
@@ -1993,9 +2072,13 @@ func (m Model) renderProviders() string {
 						cStatus = lipgloss.NewStyle().Foreground(ColorMuted).Render("[DISABLED]")
 					}
 					cLine := fmt.Sprintf("%s[%d] %-30s Priority: %-2d %s", connCursor, cIdx+1, c.Name, c.Priority, cStatus)
-					b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Render(cLine) + "\n")
+					if isSelected {
+						b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render(cLine) + "\n")
+					} else {
+						b.WriteString(lipgloss.NewStyle().Foreground(ColorText).Render(cLine) + "\n")
+					}
 				}
-				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    │\n    └─ Actions: [a] Add Con | [d] Disconnect Sel | [t] Test Sel | [T] Test All | [ [ / ] ] Switch Con") + "\n\n")
+				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    │\n    └─ Actions: [↑/↓] Select Con | [Enter/t] Test | [d] Disconnect | [a] Add Con | [Esc] Parent") + "\n\n")
 			} else {
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    ├─ (No active connections in pool)") + "\n")
 				b.WriteString(lipgloss.NewStyle().Foreground(ColorMuted).Render("    └─ Actions: [a] Add Connection") + "\n\n")
@@ -2619,14 +2702,13 @@ func (m Model) renderFooter() string {
 			k2 := StyleHelpKey.Render("n/Esc") + StyleHelpDesc.Render(" Cancel")
 			return lipgloss.JoinHorizontal(lipgloss.Center, k1, k2)
 		} else {
-			keys = append(keys, StyleHelpKey.Render("Tab/1-4")+StyleHelpDesc.Render(" Tabs"))
+			keys = append(keys, StyleHelpKey.Render("Tab/1-6")+StyleHelpDesc.Render(" Tabs"))
 			keys = append(keys, StyleHelpKey.Render("↑/↓")+StyleHelpDesc.Render(" Select"))
+			keys = append(keys, StyleHelpKey.Render("Enter")+StyleHelpDesc.Render(" Open/Test"))
+			keys = append(keys, StyleHelpKey.Render("a")+StyleHelpDesc.Render(" Add"))
+			keys = append(keys, StyleHelpKey.Render("d")+StyleHelpDesc.Render(" Disconnect"))
+			keys = append(keys, StyleHelpKey.Render("t/T")+StyleHelpDesc.Render(" Test"))
 			keys = append(keys, StyleHelpKey.Render("←/→/f")+StyleHelpDesc.Render(" Filter"))
-			keys = append(keys, StyleHelpKey.Render("Enter")+StyleHelpDesc.Render(" Dropdown"))
-			keys = append(keys, StyleHelpKey.Render("a")+StyleHelpDesc.Render(" Add Con"))
-			keys = append(keys, StyleHelpKey.Render("d")+StyleHelpDesc.Render(" Dis Con"))
-			keys = append(keys, StyleHelpKey.Render("t")+StyleHelpDesc.Render(" Test Con"))
-			keys = append(keys, StyleHelpKey.Render("T")+StyleHelpDesc.Render(" Test All"))
 			keys = append(keys, StyleHelpKey.Render("q")+StyleHelpDesc.Render(" Quit"))
 			return lipgloss.JoinHorizontal(lipgloss.Center, keys...)
 		}
