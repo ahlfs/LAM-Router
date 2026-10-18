@@ -349,12 +349,12 @@ function HealthMatrixPage() {
 
       // UNIFIED GRID ROW TABLE
       e.jsx("div", {
-        className: "overflow-x-auto rounded-xl border border-border/80 bg-card shadow-2xs",
+        className: "overflow-x-auto rounded-xl border border-border/80 bg-card dark:bg-[#13151c] shadow-2xs",
         children: e.jsxs("table", {
           className: "w-full text-left border-collapse text-xs min-w-[640px]",
           children: [
             e.jsx("thead", {
-              className: "border-b border-border/80 bg-secondary/40 text-muted-foreground uppercase text-[10px] font-bold tracking-wider",
+              className: "border-b border-border/80 bg-secondary/80 dark:bg-[#191c26] text-muted-foreground uppercase text-[10px] font-bold tracking-wider",
               children: e.jsxs("tr", {
                 children: [
                   e.jsx("th", { className: "py-3 px-4", children: "Model & Provider" }),
@@ -468,15 +468,15 @@ function HealthMatrixPage() {
 
       // CONFIRMATION DIALOG MODAL
       confirmDisableOpen ? e.jsx("div", {
-        className: "fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 animate-in fade-in-50",
+        className: "fixed inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-md p-4 animate-in fade-in-50",
         onClick: () => !isDisabling && setConfirmDisableOpen(false),
         children: e.jsxs("div", {
-          className: "relative flex flex-col w-full max-w-lg rounded-2xl border border-border bg-card text-foreground shadow-2xl overflow-hidden font-sans",
+          className: "relative flex flex-col w-full max-w-lg rounded-2xl border border-border/90 bg-card dark:bg-[#13151c] text-foreground shadow-2xl overflow-hidden font-sans",
           onClick: ev => ev.stopPropagation(),
           children: [
             // Modal Header
             e.jsxs("div", {
-              className: "flex items-center justify-between border-b border-border/80 px-5 py-4 bg-secondary/30",
+              className: "flex items-center justify-between border-b border-border/80 px-5 py-4 bg-secondary/80 dark:bg-[#191c26]",
               children: [
                 e.jsxs("div", {
                   className: "flex items-center gap-2.5",
@@ -506,7 +506,7 @@ function HealthMatrixPage() {
               className: "p-5 space-y-4 text-left",
               children: [
                 e.jsxs("div", {
-                  className: "rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 text-xs text-amber-600 dark:text-amber-400 leading-relaxed",
+                  className: "rounded-xl border border-amber-500/40 bg-amber-500/20 dark:bg-amber-950/40 p-3.5 text-xs text-amber-700 dark:text-amber-300 leading-relaxed font-medium",
                   children: [
                     e.jsx("span", { className: "font-bold block mb-1 text-foreground", children: `Ada ${offlineModels.length} model offline yang akan dinonaktifkan:` }),
                     "Model yang dinonaktifkan tidak akan muncul lagi di ",
@@ -517,7 +517,7 @@ function HealthMatrixPage() {
 
                 // List of Models to Disable
                 e.jsx("div", {
-                  className: "max-h-60 overflow-y-auto rounded-xl border border-border/80 bg-secondary/15 p-2 space-y-1 divide-y divide-border/40 font-mono text-xs",
+                  className: "max-h-60 overflow-y-auto rounded-xl border border-border/80 bg-background/95 dark:bg-[#0c0d12] p-2.5 space-y-1 divide-y divide-border/60 font-mono text-xs",
                   children: offlineModels.map(m => e.jsxs("div", {
                     key: m.model_id,
                     className: "pt-1.5 pb-1 flex items-center justify-between gap-2",
@@ -544,7 +544,7 @@ function HealthMatrixPage() {
 
             // Modal Footer Actions
             e.jsxs("div", {
-              className: "flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-border/80 bg-secondary/30",
+              className: "flex items-center justify-end gap-2.5 px-5 py-3.5 border-t border-border/80 bg-secondary/80 dark:bg-[#191c26]",
               children: [
                 e.jsx("button", {
                   type: "button",
