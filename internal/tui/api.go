@@ -596,6 +596,7 @@ type LogItem struct {
 	ReasoningTokens  int64   `json:"reasoningTokens"`
 	EstimatedCost    float64 `json:"estimatedCost"`
 	FallbackOccurred bool    `json:"fallbackOccurred"`
+	FallbackReason   string  `json:"fallbackReason"`
 }
 
 func (c *Client) FetchLogs() ([]LogItem, error) {

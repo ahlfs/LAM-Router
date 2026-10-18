@@ -19,7 +19,7 @@ import (
 // GET /v1/logs
 func (h *RouterAPIHandler) HandleLogsList(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(`
-SELECT id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, reasoning_tokens, estimated_cost, fallback_occurred
+SELECT id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, reasoning_tokens, estimated_cost, fallback_occurred, COALESCE(fallback_reason, '')
 FROM request_logs ORDER BY created_at DESC LIMIT 100
 `)
 	if err != nil {
@@ -38,11 +38,12 @@ FROM request_logs ORDER BY created_at DESC LIMIT 100
 		var createdAt, cachedTok, reasoningTok int64
 		var cost float64
 		var fallbackOccurred int
+		var fallbackReason string
 
 		err := rows.Scan(
 			&id, &apiKeyID, &providerID, &model, &promptTok, &compTok,
 			&totalTok, &status, &latency, &createdAt, &cachedTok,
-			&reasoningTok, &cost, &fallbackOccurred,
+			&reasoningTok, &cost, &fallbackOccurred, &fallbackReason,
 		)
 		if err != nil {
 			continue
@@ -63,6 +64,7 @@ FROM request_logs ORDER BY created_at DESC LIMIT 100
 			"reasoningTokens":  reasoningTok,
 			"estimatedCost":    cost,
 			"fallbackOccurred": fallbackOccurred == 1,
+			"fallbackReason":   fallbackReason,
 		})
 	}
 

@@ -2763,19 +2763,24 @@ func (m Model) renderLogs() string {
 	if m.logDetail && len(m.logs) > 0 && m.logCursor < len(m.logs) {
 		sel := m.logs[m.logCursor]
 		timeFull := time.UnixMilli(sel.CreatedAt).Format("2006-01-02 15:04:05")
+		errorReason := ""
+		if sel.FallbackReason != "" {
+			errorReason = fmt.Sprintf("Error Detail:     %s\n", sel.FallbackReason)
+		}
 		detailContent := fmt.Sprintf(
 			"Request ID:       %s\n"+
 				"Timestamp:        %s\n"+
 				"Target Model:     %s\n"+
 				"Upstream Driver:  %s (API Key: %s)\n"+
 				"HTTP Status:      %d\n"+
+				"%s"+
 				"Latency:          %d ms\n"+
 				"Tokens Breakdown: Prompt: %d | Comp: %d | Total: %d (Cached: %d, Reasoning: %d)\n"+
 				"Estimated Cost:   $%.6f\n"+
 				"Failover Cascade: %v\n\n"+
 				"[Press Enter or Esc to dismiss detail card]",
 			sel.ID, timeFull, sel.Model, sel.ProviderID, sel.APIKeyID,
-			sel.StatusCode, sel.LatencyMs,
+			sel.StatusCode, errorReason, sel.LatencyMs,
 			sel.PromptTokens, sel.CompletionTokens, sel.TotalTokens, sel.CachedTokens, sel.ReasoningTokens,
 			sel.EstimatedCost, sel.FallbackOccurred,
 		)
