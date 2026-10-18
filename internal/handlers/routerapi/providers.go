@@ -1278,13 +1278,21 @@ func (h *RouterAPIHandler) HandleProviderDelete(w http.ResponseWriter, r *http.R
 		id = chi.URLParam(r, "id")
 	}
 
-	_, err := h.db.Exec(`DELETE FROM providers WHERE id = ? OR provider_id = ?`, id, id)
+	lowID := strings.ToLower(id)
+
+	// 1. Delete from providers table (matches either unique id or provider_id)
+	_, err := h.db.Exec(`DELETE FROM providers WHERE id = ? OR LOWER(provider_id) = ?`, id, lowID)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete provider: %v", err))
 		return
 	}
 
-	_, _ = h.db.Exec(`DELETE FROM providerConnections WHERE id = ?`, id)
+	// 2. Delete from providerConnections (matches id, provider name, or prefix like openrouter-12345)
+	_, _ = h.db.Exec(`DELETE FROM providerConnections WHERE id = ? OR LOWER(provider) = ? OR LOWER(id) LIKE ?`, id, lowID, lowID+"-%")
+
+	// 3. Purge cached and synced models for this provider so they do not linger in /v1/models
+	_, _ = h.db.Exec(`DELETE FROM provider_models WHERE LOWER(provider_id) = ?`, lowID)
+	_, _ = h.db.Exec(`DELETE FROM custom_models WHERE LOWER(provider_id) = ?`, lowID)
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"success": true,
