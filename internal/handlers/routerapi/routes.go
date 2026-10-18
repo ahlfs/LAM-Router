@@ -390,6 +390,11 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/logs/stats", h.HandleLogsStats)
 	r.HandleFunc("/v1/quota", h.HandleQuotaGet)
 
+	// Health Domain
+	r.HandleFunc("/v1/health/models", h.HandleModelsHealthList)
+	r.HandleFunc("/v1/health/models/probe", h.HandleModelsHealthProbe)
+	r.HandleFunc("/v1/health/models/reset", h.HandleModelsHealthReset)
+
 	// Tunnel Domain
 	r.HandleFunc("/v1/tunnel/status", h.HandleTunnelStatus)
 	r.HandleFunc("/v1/tunnel/events", h.HandleTunnelEvents)
