@@ -338,7 +338,7 @@ func NewModel(baseURL string) Model {
 
 	iji := textinput.New()
 	iji.Placeholder = `Paste raw providers JSON, e.g. [{"providerId":"...","apiKey":"..."}]`
-	iji.CharLimit = 16384
+	iji.CharLimit = 524288 // 512 KB buffer for large multi-provider backups
 	iji.Width = 60
 
 	vp := viewport.New(60, 8)
@@ -1155,10 +1155,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if jsonVal != "" {
 					var parsed []map[string]any
 					var wrapper struct {
-						Providers []map[string]any `json:"providers"`
+						Providers           []map[string]any `json:"providers"`
+						ProviderConnections []map[string]any `json:"providerConnections"`
 					}
-					if json.Unmarshal([]byte(jsonVal), &wrapper) == nil && len(wrapper.Providers) > 0 {
-						parsed = wrapper.Providers
+					if json.Unmarshal([]byte(jsonVal), &wrapper) == nil && (len(wrapper.Providers) > 0 || len(wrapper.ProviderConnections) > 0) {
+						if len(wrapper.Providers) > 0 {
+							parsed = wrapper.Providers
+						} else {
+							parsed = wrapper.ProviderConnections
+						}
 					} else {
 						_ = json.Unmarshal([]byte(jsonVal), &parsed)
 					}
