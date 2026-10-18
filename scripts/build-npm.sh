@@ -16,7 +16,35 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-VERSION=$(node -e "console.log(require('$ROOT_DIR/npm/package.json').version)")
+# Synchronize version from git tag (if running in CI release) or use npm/package.json
+if [ -n "${GITHUB_REF_NAME:-}" ] && [[ "$GITHUB_REF_NAME" =~ ^v[0-9] ]]; then
+  VERSION="${GITHUB_REF_NAME#v}"
+  echo "📌 Synchronizing version $VERSION from git tag $GITHUB_REF_NAME..."
+  node -e "
+    const fs = require('fs');
+    const path = require('path');
+    const rootPkgPath = path.join('$ROOT_DIR', 'npm', 'package.json');
+    const rootPkg = JSON.parse(fs.readFileSync(rootPkgPath, 'utf8'));
+    rootPkg.version = '$VERSION';
+    for (const k of Object.keys(rootPkg.optionalDependencies || {})) {
+      rootPkg.optionalDependencies[k] = '$VERSION';
+    }
+    fs.writeFileSync(rootPkgPath, JSON.stringify(rootPkg, null, 2) + '\n');
+
+    const platforms = ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64', 'win32-x64'];
+    for (const p of platforms) {
+      const pPath = path.join('$ROOT_DIR', 'npm', 'platforms', p, 'package.json');
+      if (fs.existsSync(pPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pPath, 'utf8'));
+        pkg.version = '$VERSION';
+        fs.writeFileSync(pPath, JSON.stringify(pkg, null, 2) + '\n');
+      }
+    }
+  "
+else
+  VERSION=$(node -e "console.log(require('$ROOT_DIR/npm/package.json').version)")
+fi
+
 LDFLAGS="-s -w -X 'lamrouter/internal/updater.CurrentVersion=$VERSION'"
 
 echo "📦 Preparing LAM-Router NPM release v$VERSION..."
