@@ -2596,6 +2596,9 @@ func (m Model) renderExportImport() string {
 	}
 
 	// 4. Normal View
+	isShort := m.height > 0 && m.height < 28
+	isNarrow := m.width > 0 && m.width < 80
+
 	b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorText).Render("📦 PROVIDERS BACKUP & RESTORE UTILITY") + "\n\n")
 
 	connCount := 0
@@ -2608,39 +2611,78 @@ func (m Model) renderExportImport() string {
 		folderDesc = m.latestExportFolder
 	}
 
-	statusCard := StyleCard.Width(min(70, m.width-12)).Render(
-		fmt.Sprintf("• Active Upstream Drivers:   %d Supported\n"+
-			"• Linked Accounts / Sesi:    %d Connected in Pool\n"+
-			"• Export Target Location:    %s\n"+
-			"• Scope:                      Provider configurations & API keys only",
-			len(m.providers), connCount, folderDesc),
-	)
-	b.WriteString(statusCard + "\n\n")
-
-	actionsCard := StyleCardHighlight.Width(min(70, m.width-12)).Render(
-		"🚀 QUICK ACTIONS:\n\n" +
-			"• [x] : Export providers (otomatis buat folder baru di ~/.lam-router/exports/)\n" +
-			"• [i] : Import providers dari URL (http/https) atau path file lokal\n" +
-			"• [p] : Paste snippet raw JSON langsung\n" +
-			"• [r] : Refresh provider connection data dari server",
-	)
-	b.WriteString(actionsCard + "\n\n")
-
-	if m.latestExportFolder != "" {
-		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("📁 FOLDER HASIL EXPORT TERBARU:") + "\n")
-		folderCard := StyleCard.Width(min(70, m.width-12)).Render(
-			fmt.Sprintf("Path: %s\n├── providers-backup.json (siap dipakai / di-share)\n└── summary.txt", m.latestExportFolder),
+	if isShort && isNarrow {
+		// Very compact single card for small terminals
+		compactCard := StyleCardHighlight.Width(min(70, m.width-8)).Render(
+			fmt.Sprintf("• Drivers: %d | Accounts: %d\n"+
+				"• Actions: [x] Export  [i] Import URL/File  [p] Paste JSON  [r] Refresh\n"+
+				"• Path:    %s",
+				len(m.providers), connCount, truncate(folderDesc, min(42, m.width-18))),
 		)
-		b.WriteString(folderCard + "\n\n")
+		b.WriteString(compactCard + "\n\n")
+	} else if !isNarrow {
+		// Responsive side-by-side cards to conserve vertical height
+		cardW := (m.width - 10) / 2
+		if cardW > 46 {
+			cardW = 46
+		}
+		statusCard := StyleCard.Width(cardW).Render(
+			fmt.Sprintf("• Upstream Drivers: %d\n"+
+				"• Linked Accounts:  %d In Pool\n"+
+				"• Location:         %s\n"+
+				"• Scope:            Configs & keys",
+				len(m.providers), connCount, truncate(folderDesc, cardW-16)),
+		)
+		actionsCard := StyleCardHighlight.Width(cardW).Render(
+			"🚀 ACTIONS:\n" +
+				"• [x] : Export providers\n" +
+				"• [i] : Import URL / local file\n" +
+				"• [p] : Paste raw JSON\n" +
+				"• [r] : Refresh provider data",
+		)
+		b.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, statusCard, "  ", actionsCard) + "\n\n")
+	} else {
+		// Narrow but tall screen
+		statusCard := StyleCard.Width(min(70, m.width-10)).Render(
+			fmt.Sprintf("• Upstream Drivers: %d | Linked Accounts: %d\n"+
+				"• Export Target:    %s",
+				len(m.providers), connCount, folderDesc),
+		)
+		actionsCard := StyleCardHighlight.Width(min(70, m.width-10)).Render(
+			"🚀 QUICK ACTIONS:\n" +
+				"• [x] : Export providers  |  • [i] : Import URL/file\n" +
+				"• [p] : Paste JSON       |  • [r] : Refresh data",
+		)
+		b.WriteString(statusCard + "\n")
+		b.WriteString(actionsCard + "\n\n")
 	}
 
-	if m.exportedJSONContent != "" {
+	if m.latestExportFolder != "" {
+		if isShort {
+			b.WriteString(lipgloss.NewStyle().Foreground(ColorSuccess).Render(
+				fmt.Sprintf("📁 Latest Export: %s/providers-backup.json\n\n", m.latestExportFolder),
+			))
+		} else {
+			b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorSuccess).Render("📁 FOLDER HASIL EXPORT TERBARU:") + "\n")
+			folderCard := StyleCard.Width(min(70, m.width-10)).Render(
+				fmt.Sprintf("Path: %s\n├── providers-backup.json (siap dipakai / di-share)\n└── summary.txt", m.latestExportFolder),
+			)
+			b.WriteString(folderCard + "\n\n")
+		}
+	}
+
+	// Only show raw JSON preview if there is plenty of vertical screen height (m.height >= 30)
+	if m.exportedJSONContent != "" && m.height >= 30 {
 		preview := m.exportedJSONContent
-		if len(preview) > 600 {
-			preview = preview[:600] + "\n... (truncated preview)"
+		maxPreview := 300
+		if m.height >= 36 {
+			maxPreview = 600
+		}
+		if len(preview) > maxPreview {
+			preview = preview[:maxPreview] + "\n... (truncated preview)"
 		}
 		b.WriteString(lipgloss.NewStyle().Bold(true).Foreground(ColorPrimary).Render("📄 Latest Exported JSON Preview:") + "\n")
-		b.WriteString(StyleCard.Width(min(70, m.width-12)).Render(preview) + "\n")
+		b.WriteString(StyleCard.Width(min(70, m.width-10)).Render(preview) + "\n")
 	}
 
 	return b.String()
