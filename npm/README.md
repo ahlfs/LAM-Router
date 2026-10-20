@@ -42,9 +42,29 @@ lam-router --help
 |---------|-------------|
 | `lam-router` | Start the local proxy server on port `9898` |
 | `lam-router tui` | Open the interactive Charmbracelet Terminal UI dashboard |
-| `lam-router version` | Show version and build details |
-| `lam-router update` | Check for updates and perform in-place upgrade |
+| `lam-router version` | Show the running version, install channel and npm release status |
+| `lam-router update` | Install the newest release via npm (npm-owned installs only) |
 | `lam-router mitm status` | View MITM proxy interception status |
+
+---
+
+## 🔄 Updating
+
+LAM-Router never overwrites its own binary. Updates are installed by npm, the
+same way the binary was installed:
+
+```bash
+lam-router update          # checks npm, then runs `npm i -g lam-router@latest`
+# or manually:
+npm i -g lam-router@latest
+
+pm2 restart lamrouter      # or: systemctl restart lam-router
+```
+
+`lam-router version` reports which channel owns the running binary
+(`npm` when it was installed from the registry, `manual` for source builds) and
+prints the exact command to run. Background versions are logged at startup; set
+`UPDATE_CHECK=false` to silence that notice.
 
 ---
 

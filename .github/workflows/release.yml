@@ -8,14 +8,16 @@ on:
 
 permissions:
   contents: write
-  packages: write
 
 jobs:
   binaries:
     name: Build release binaries
     runs-on: ubuntu-latest
     steps:
+      # Full history: CHANGELOG extraction and the previous-tag diff need the tags.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -26,26 +28,42 @@ jobs:
       - name: Build all platforms
         run: make cross
 
-      - name: Generate changelog
+      - name: Generate checksums
+        run: |
+          sha256sum \
+            lam-router-linux-amd64 \
+            lam-router-linux-arm64 \
+            lam-router-darwin-amd64 \
+            lam-router-darwin-arm64 \
+            lam-router-windows-amd64.exe > checksums.txt
+          cat checksums.txt
+
+      - name: Extract release notes
         id: changelog
         run: |
           TAG="${GITHUB_REF_NAME}"
-          # Try to extract section for this version tag from CHANGELOG.md
+          NOTES=""
           if [ -f CHANGELOG.md ]; then
             NOTES=$(awk "/## \\[$TAG\\]/{flag=1; next} /## \\[v/{flag=0} flag" CHANGELOG.md)
           fi
-          if [ -n "$NOTES" ]; then
-            echo "$NOTES" > /tmp/changelog.md
-          else
-            # Fallback to git log
+          if [ -z "$NOTES" ]; then
             PREV_TAG=$(git tag --sort=-version:refname | grep '^v' | head -2 | tail -1)
-            if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "${GITHUB_REF_NAME}" ]; then
-              LOG=$(git log --pretty=format:"- %s (%h)" --no-merges)
+            if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
+              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges)
             else
-              LOG=$(git log --pretty=format:"- %s (%h)" --no-merges ${PREV_TAG}..${GITHUB_REF_NAME})
+              NOTES=$(git log --pretty=format:"- %s (%h)" --no-merges "${PREV_TAG}..${TAG}")
             fi
-            echo "$LOG" > /tmp/changelog.md
           fi
+          {
+            echo "$NOTES"
+            echo
+            echo "### Install / update"
+            echo '```bash'
+            echo "npm i -g lam-router@latest"
+            echo "pm2 restart lamrouter   # or: systemctl restart lam-router"
+            echo '```'
+            echo "Prebuilt archives and \`checksums.txt\` are attached to this release."
+          } > /tmp/changelog.md
           cat /tmp/changelog.md
 
       - name: Upload binaries to release
@@ -57,6 +75,7 @@ jobs:
             lam-router-darwin-amd64
             lam-router-darwin-arm64
             lam-router-windows-amd64.exe
+            checksums.txt
           body_path: /tmp/changelog.md
           generate_release_notes: false
         env:
@@ -66,8 +85,14 @@ jobs:
     name: Publish to NPM
     needs: binaries
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm provenance: signs the published tarballs against this workflow run.
+      id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -81,14 +106,42 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Configure NPM auth in home
+      # Fail with an actionable message instead of an E401 deep inside the publish loop.
+      - name: Require NPM_TOKEN
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "${NODE_AUTH_TOKEN:-}" ]; then
+            echo "::error::Repository secret NPM_TOKEN is missing. Create a Granular Access Token (All packages, read+write, 2FA bypass) and add it under Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+          # npm reads $HOME/.npmrc only when publishing from a sub-package directory.
           echo "//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}" > "$HOME/.npmrc"
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          chmod 600 "$HOME/.npmrc"
+          npm whoami
 
-      - name: Build and publish all NPM packages
-        run: |
-          ./scripts/build-npm.sh --publish
+      - name: Publish all NPM packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: ./scripts/build-npm.sh --publish
+
+  verify-npm:
+    name: Verify published npm channel
+    needs: publish-npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      # Regression guard for the 1.8.5 failure: the registry served a binary
+      # that no longer matched the repository. This job downloads what npm
+      # actually serves and refuses to pass if it is stale.
+      - name: Verify registry artifacts
+        run: ./scripts/build-npm.sh --verify

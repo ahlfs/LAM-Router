@@ -1,6 +1,6 @@
 {
   "name": "lam-router",
-  "version": "1.8.5",
+  "version": "2.0.0",
   "description": "Ultra-fast AI API proxy router with multi-provider failover, virtual combos, token savers, and terminal UI",
   "bin": {
     "lam-router": "bin/cli.js",
@@ -12,11 +12,11 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "lam-router-linux-x64": "1.8.5",
-    "lam-router-linux-arm64": "1.8.5",
-    "lam-router-darwin-arm64": "1.8.5",
-    "lam-router-darwin-x64": "1.8.5",
-    "lam-router-win32-x64": "1.8.5"
+    "lam-router-linux-x64": "2.0.0",
+    "lam-router-linux-arm64": "2.0.0",
+    "lam-router-darwin-arm64": "2.0.0",
+    "lam-router-darwin-x64": "2.0.0",
+    "lam-router-win32-x64": "2.0.0"
   },
   "keywords": [
     "ai",
@@ -43,5 +43,9 @@
   "homepage": "https://github.com/ahlfs/LAM-Router#readme",
   "engines": {
     "node": ">=18.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   }
 }

@@ -65,7 +65,6 @@ func SetupRoutes(r interface {
 	r.Get("/version", chatH.HandleVersion)
 	r.Get("/api/version", chatH.HandleVersion)
 	r.Get("/api/version/check", chatH.HandleCheckUpdate)
-	r.Post("/api/version/update", chatH.HandleTriggerUpdate)
 	r.Get("/models", chatH.HandleModels)
 	r.Get("/models/info", chatH.HandleModelsInfo)
 	r.Get("/models/{kind}", chatH.HandleModelsByKind)

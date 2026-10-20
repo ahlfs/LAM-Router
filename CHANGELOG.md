@@ -1,5 +1,44 @@
 # Changelog
 
+## [v2.0.0] — 2026-10-20
+
+### Instalasi & update penuh lewat npm
+- Instalasi resmi lewat registry npm (`npm i -g lam-router`), launcher Pattern A
+  (`optionalDependencies`) untuk 5 platform: linux-x64, linux-arm64,
+  darwin-arm64, darwin-x64, win32-x64.
+- `lam-router version` melaporkan versi terpasang, kanal pemasangan
+  (`npm` atau `manual`) dan rilis terbaru di registry; `lam-router update`
+  mendelegasikan ke npm dan tidak pernah menulis ke dalam node_modules.
+- Pengecekan versi membaca registry npm (bukan tag GitHub) dengan timeout 8 detik
+  dan batas baca 256KB. Notifikasi latar belakang memakai `--update-check`
+  (matikan dengan `UPDATE_CHECK=false`), menggantikan `--auto-update`.
+
+### Dihapus total: self-updater yang menulis binernya sendiri
+- `updater.PerformSelfUpdate`, `restartSelf`, dan manifest `version.json` dihapus.
+  Jalur lama (unduh, `chmod 0755`, timpa executable yang sedang berjalan) tidak
+  punya verifikasi integritas maupun salinan rollback, dan bertabrakan dengan
+  process supervisor yang sudah menjalankan biner tersebut.
+- Endpoint `POST /api/version/update` dihapus, sehingga API key konsumen tidak
+  lagi bisa memicu penggantian biner di server.
+
+### Panel System Diagnostics
+- Versi terpasang dan status rilis diambil dari backend `/version` (yang membaca
+  npm), bukan konstanta `v0.1.3` yang dibandingkan dengan tag GitHub.
+- Perintah yang ditampilkan untuk disalin menjadi `npm i -g lam-router@latest`.
+
+### Rilis yang bisa diaudit
+- `scripts/build-npm.sh` menolak build/publish kecuali HEAD berada tepat di tag
+  rilis dan working tree bersih; `ALLOW_UNTAGGED=1` hanya untuk dry run lokal yang
+  tetap dilarang publish.
+- Mode `--verify` mengunduh artefak yang benar-benar dilayani registry dan gagal
+  bila binernya tidak lagi cocok dengan kode — guard untuk regresi 1.8.5.
+- Workflow rilis menerbitkan `checksums.txt`, memakai npm provenance, dan punya
+  job verifikasi pasca-publish.
+
+### Perbaikan yang ikut terbawa
+- Fix kuota Antigravity (User-Agent `antigravity/hub/2.9.1`) yang belum sampai ke
+  artefak npm 1.8.5.
+
 ## [v1.8.4] — 2026-08-14
 
 ### 🐛 Bug Fixes & Resilience

@@ -1,4 +1,13 @@
-// Package updater handles app versioning, release update checks, and safe self-updating.
+// Package updater reports the running version and checks the npm registry for a
+// newer release.
+//
+// LAM-Router never replaces its own binary: npm (or the operator's build step)
+// owns the file on disk. This package is deliberately read-only — it fetches
+// release metadata and prints the command a human should run.
+//
+// The pre-2.0.0 write path (download -> chmod 0755 -> overwrite the running
+// executable -> restart self) was removed: it verified nothing, kept no rollback
+// copy, and fought the process supervisor that owns the service.
 package updater
 
 import (
@@ -8,8 +17,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -18,191 +25,187 @@ import (
 	"lamrouter/internal/log"
 )
 
-// CurrentVersion is the active lamrouter application version.
-// Can be set at build time via -ldflags "-X lamrouter/internal/updater.CurrentVersion=1.8.4"
-var CurrentVersion = "1.8.4"
+// CurrentVersion is the running lam-router version. Release builds inject it:
+//
+//	-ldflags "-X lamrouter/internal/updater.CurrentVersion=2.0.0"
+var CurrentVersion = "0.0.0-dev"
 
-// DefaultUpdateURL is the default remote version manifest URL.
-var DefaultUpdateURL = "https://raw.githubusercontent.com/ahlfs/LAM-Router/main/version.json"
+// PackageName is the npm package that carries the release binaries.
+const PackageName = "lam-router"
 
-var (
-	cachedInfo   *UpdateInfo
-	cacheMu      sync.RWMutex
-	lastCheckTime time.Time
+// PackagePage is the npm landing page for PackageName.
+const PackagePage = "https://www.npmjs.com/package/" + PackageName
+
+// RegistryURL is the npm registry queried for version checks. Override it with
+// LAMROUTER_NPM_REGISTRY (tests, and installs behind a mirror).
+var RegistryURL = "https://registry.npmjs.org"
+
+// UpdateCommand installs the newest release; RestartHint makes the running
+// service pick up the new binary.
+const (
+	UpdateCommand = "npm i -g " + PackageName + "@latest"
+	RestartHint   = "pm2 restart lamrouter"
 )
 
-// UpdateInfo holds version details and update status.
+// UpdateInfo is the JSON contract served to the dashboard and printed by the CLI.
+// The 1.x field names are kept. 2.0.0 drops releaseNotes in favour of releaseUrl
+// and adds the npm install-channel fields.
 type UpdateInfo struct {
 	CurrentVersion string `json:"currentVersion"`
 	LatestVersion  string `json:"latestVersion"`
 	HasUpdate      bool   `json:"hasUpdate"`
 	DownloadURL    string `json:"downloadUrl"`
-	ReleaseNotes   string `json:"releaseNotes"`
+	ReleaseURL     string `json:"releaseUrl"`
 	GoVersion      string `json:"goVersion"`
 	OS             string `json:"os"`
 	Arch           string `json:"arch"`
 	CheckedAt      string `json:"checkedAt"`
+
+	// npm install channel (2.0.0+)
+	InstallChannel string `json:"installChannel"`
+	InstallPath    string `json:"installPath"`
+	UpdateCommand  string `json:"updateCommand"`
+	RestartHint    string `json:"restartHint"`
 }
 
-// GetCachedInfo returns the latest cached UpdateInfo or a default.
+var (
+	cachedInfo *UpdateInfo
+	cacheMu    sync.RWMutex
+)
+
+// GetCachedInfo returns the last check result, or a local-only snapshot when no
+// network check has run yet: the installed version and channel are always known
+// offline, only the published version is not.
 func GetCachedInfo() *UpdateInfo {
 	cacheMu.RLock()
-	defer cacheMu.RUnlock()
-
 	if cachedInfo != nil {
-		return cachedInfo
+		info := *cachedInfo
+		cacheMu.RUnlock()
+		return &info
 	}
+	cacheMu.RUnlock()
 
+	channel, path := DetectInstallChannel()
 	return &UpdateInfo{
 		CurrentVersion: CurrentVersion,
 		LatestVersion:  CurrentVersion,
 		HasUpdate:      false,
+		DownloadURL:    PackagePage,
 		GoVersion:      runtime.Version(),
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+		InstallChannel: channel,
+		InstallPath:    path,
+		UpdateCommand:  UpdateCommand,
+		RestartHint:    RestartHint,
 	}
 }
 
-// CheckUpdate queries remote version endpoint and compares semver versions.
+// CheckUpdate queries the npm registry for the newest published version and
+// reports whether this binary is behind it.
 func CheckUpdate(ctx context.Context) (*UpdateInfo, error) {
-	updateURL := os.Getenv("UPDATE_URL")
-	if updateURL == "" {
-		updateURL = DefaultUpdateURL
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "GET", updateURL, nil)
+	latest, err := fetchLatestVersion(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("create update check request: %w", err)
+		return nil, err
 	}
 
-	client := &http.Client{Timeout: 8 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch update info: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("update endpoint returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read update response body: %w", err)
-	}
-
-	var remote struct {
-		Version      string            `json:"version"`
-		DownloadURLs map[string]string `json:"downloadUrls"`
-		ReleaseNotes string            `json:"releaseNotes"`
-	}
-
-	if err := json.Unmarshal(body, &remote); err != nil {
-		return nil, fmt.Errorf("parse update JSON: %w", err)
-	}
-
-	latestVersion := strings.TrimPrefix(remote.Version, "v")
 	current := strings.TrimPrefix(CurrentVersion, "v")
-	hasUpdate := CompareVersions(latestVersion, current) > 0
-
-	platformKey := fmt.Sprintf("%s_%s", runtime.GOOS, runtime.GOARCH)
-	downloadURL := remote.DownloadURLs[platformKey]
-	if downloadURL == "" {
-		downloadURL = remote.DownloadURLs["default"]
-	}
+	channel, path := DetectInstallChannel()
 
 	info := &UpdateInfo{
 		CurrentVersion: CurrentVersion,
-		LatestVersion:  latestVersion,
-		HasUpdate:      hasUpdate,
-		DownloadURL:    downloadURL,
-		ReleaseNotes:   remote.ReleaseNotes,
+		LatestVersion:  latest,
+		HasUpdate:      CompareVersions(latest, current) > 0,
+		DownloadURL:    PackagePage,
+		ReleaseURL:     ReleaseURLFor(latest),
 		GoVersion:      runtime.Version(),
 		OS:             runtime.GOOS,
 		Arch:           runtime.GOARCH,
 		CheckedAt:      time.Now().UTC().Format(time.RFC3339),
+		InstallChannel: channel,
+		InstallPath:    path,
+		UpdateCommand:  UpdateCommand,
+		RestartHint:    RestartHint,
 	}
 
 	cacheMu.Lock()
 	cachedInfo = info
-	lastCheckTime = time.Now()
 	cacheMu.Unlock()
 
 	return info, nil
 }
 
-// PerformSelfUpdate downloads and safely replaces the active executable binary.
-func PerformSelfUpdate(downloadURL string) error {
-	if downloadURL == "" {
-		return fmt.Errorf("missing download URL for platform %s_%s", runtime.GOOS, runtime.GOARCH)
+// ReleaseURLFor is the GitHub release page for a version ("" when version is empty).
+func ReleaseURLFor(version string) string {
+	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
+	if version == "" {
+		return ""
 	}
+	return "https://github.com/ahlfs/LAM-Router/releases/tag/v" + version
+}
 
-	execPath, err := os.Executable()
-	if err != nil {
-		return fmt.Errorf("locate executable path: %w", err)
+// npmVersionDoc is the subset of the registry's /<pkg>/latest document we need.
+type npmVersionDoc struct {
+	Version    string `json:"version"`
+	Deprecated string `json:"deprecated"`
+}
+
+// fetchLatestVersion reads the "latest" dist-tag document from the npm registry.
+func fetchLatestVersion(ctx context.Context) (string, error) {
+	base := os.Getenv("LAMROUTER_NPM_REGISTRY")
+	if base == "" {
+		base = RegistryURL
 	}
+	url := strings.TrimRight(base, "/") + "/" + PackageName + "/latest"
 
-	execPath, err = filepath.EvalSymlinks(execPath)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return fmt.Errorf("resolve symlink path: %w", err)
+		return "", fmt.Errorf("build npm registry request: %w", err)
 	}
+	req.Header.Set("Accept", "application/json")
 
-	log.Info("updater", "starting download for auto-update", "url", downloadURL, "target", execPath)
-
-	resp, err := http.Get(downloadURL)
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download binary asset: %w", err)
+		return "", fmt.Errorf("query npm registry: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download binary returned status %d", resp.StatusCode)
+		return "", fmt.Errorf("npm registry returned HTTP %d for %s", resp.StatusCode, PackageName)
 	}
 
-	// Create temporary binary file in target directory
-	dir := filepath.Dir(execPath)
-	tmpFile, err := os.CreateTemp(dir, ".lamrouter-update-*.tmp")
+	// A version document is a few KB. Cap the read so a broken or hostile
+	// registry cannot stream unbounded data into memory.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmpFile.Name()
-	defer os.Remove(tmpPath)
-
-	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
-		tmpFile.Close()
-		return fmt.Errorf("write binary asset to temp file: %w", err)
-	}
-	tmpFile.Close()
-
-	// Grant executable permissions (rwxr-xr-x)
-	if err := os.Chmod(tmpPath, 0755); err != nil {
-		return fmt.Errorf("chmod executable: %w", err)
+		return "", fmt.Errorf("read npm registry response: %w", err)
 	}
 
-	// Replace active binary atomically
-	oldPath := execPath + ".old"
-	_ = os.Remove(oldPath)
-
-	if err := os.Rename(execPath, oldPath); err != nil {
-		return fmt.Errorf("backup active binary: %w", err)
+	var doc npmVersionDoc
+	if err := json.Unmarshal(body, &doc); err != nil {
+		return "", fmt.Errorf("parse npm registry response: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, execPath); err != nil {
-		// Rollback on failure
-		_ = os.Rename(oldPath, execPath)
-		return fmt.Errorf("swap binary asset: %w", err)
+	latest := strings.TrimPrefix(strings.TrimSpace(doc.Version), "v")
+	if latest == "" {
+		return "", fmt.Errorf("npm registry response for %s carries no version", PackageName)
 	}
-
-	_ = os.Remove(oldPath)
-	log.Info("updater", "auto-update completed successfully!", "binary", execPath)
-	return nil
+	if doc.Deprecated != "" {
+		log.Info("updater", "published release is marked deprecated on npm",
+			"version", latest, "reason", doc.Deprecated)
+	}
+	return latest, nil
 }
 
-// StartBackgroundCheck initiates an async background update check and auto-updates if enabled.
-func StartBackgroundCheck(autoUpdate bool) {
+// StartBackgroundCheck logs a notice when a newer release exists. It installs
+// nothing: updating is an explicit user action (`lamrouter update`).
+func StartBackgroundCheck(enabled bool) {
+	if !enabled {
+		return
+	}
 	go func() {
-		// Wait 3 seconds after startup to not block initial gateway startup
 		time.Sleep(3 * time.Second)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -210,42 +213,20 @@ func StartBackgroundCheck(autoUpdate bool) {
 
 		info, err := CheckUpdate(ctx)
 		if err != nil {
-			log.Debug("updater", "check update skipped/failed", "error", err)
+			log.Debug("updater", "update check skipped/failed", "error", err)
 			return
 		}
-
 		if info.HasUpdate {
-			log.Info("updater", "NEW UPDATE AVAILABLE!", "current", info.CurrentVersion, "latest", info.LatestVersion, "notes", info.ReleaseNotes)
-
-			if autoUpdate || os.Getenv("AUTO_UPDATE") == "true" {
-				log.Info("updater", "AUTO_UPDATE is enabled — initiating update...")
-				if err := PerformSelfUpdate(info.DownloadURL); err != nil {
-					log.Error("updater", "auto-update failed", "error", err)
-				} else {
-					log.Info("updater", "update complete! Restarting process...")
-					restartSelf()
-				}
-			}
-		} else {
-			log.Debug("updater", "app is up to date", "version", info.CurrentVersion)
+			log.Info("updater", "NEW RELEASE AVAILABLE on npm",
+				"current", info.CurrentVersion, "latest", info.LatestVersion,
+				"update", info.UpdateCommand, "restart", info.RestartHint)
+			return
 		}
+		log.Debug("updater", "app is up to date", "version", info.CurrentVersion)
 	}()
 }
 
-func restartSelf() {
-	execPath, err := os.Executable()
-	if err != nil {
-		return
-	}
-	cmd := exec.Command(execPath, os.Args[1:]...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
-	_ = cmd.Start()
-	os.Exit(0)
-}
-
-// CompareVersions compares two semver strings (v1 > v2 -> 1, v1 < v2 -> -1, v1 == v2 -> 0).
+// CompareVersions returns 1 when v1 is newer than v2, -1 when older, 0 when equal.
 func CompareVersions(v1, v2 string) int {
 	parts1 := parseSemver(v1)
 	parts2 := parseSemver(v2)

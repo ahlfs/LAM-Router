@@ -2,9 +2,9 @@ package chat
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
-	"context"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"lamrouter/internal/cache"
-	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/handlers/routerapi"
+	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/log"
 	"lamrouter/internal/providers"
 	"lamrouter/internal/translator"
@@ -140,6 +140,7 @@ func (h *ChatHandler) handleSingleModel(ctx context.Context, w http.ResponseWrit
 		}
 	}
 }
+
 // HandleMessages handles POST /v1/messages (Claude format requests).
 func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
@@ -267,32 +268,6 @@ func (h *ChatHandler) HandleCheckUpdate(w http.ResponseWriter, r *http.Request) 
 	handlerutil.WriteJSON(w, http.StatusOK, info)
 }
 
-// HandleTriggerUpdate performs immediate self-updating if an update is available.
-func (h *ChatHandler) HandleTriggerUpdate(w http.ResponseWriter, r *http.Request) {
-	info, err := updater.CheckUpdate(r.Context())
-	if err != nil {
-		handlerutil.WriteJSONError(w, http.StatusBadGateway, fmt.Sprintf("check update failed: %v", err))
-		return
-	}
-	if !info.HasUpdate {
-		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-			"status":  "up_to_date",
-			"message": "lamrouter is already on the latest version",
-			"version": info.CurrentVersion,
-		})
-		return
-	}
-	if err := updater.PerformSelfUpdate(info.DownloadURL); err != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("self-update failed: %v", err))
-		return
-	}
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
-		"status":  "updated",
-		"message": "Update installed successfully. Process is restarting...",
-		"version": info.LatestVersion,
-	})
-}
-
 // HandleModels responds with the list of available model identifiers from the DB and active providers.
 func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	type modelObj struct {
@@ -373,7 +348,7 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	if rawDB != nil {
 		// 1. Get list of active/connected providers (from both providers & providerConnections tables)
 		connectedProviders := make(map[string]bool)
-		
+
 		prows, err := rawDB.Query(`SELECT DISTINCT LOWER(provider_id) FROM providers WHERE enabled = 1`)
 		if err == nil {
 			for prows.Next() {

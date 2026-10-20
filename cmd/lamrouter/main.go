@@ -74,9 +74,9 @@ func main() {
 				Usage: "enable Ponytail lazy dev code style (env: PONYTAIL_ENABLED)",
 			},
 			&cli.BoolFlag{
-				Name:  "auto-update",
-				Value: os.Getenv("AUTO_UPDATE") == "true",
-				Usage: "automatically download and install updates if available (env: AUTO_UPDATE)",
+				Name:  "update-check",
+				Value: os.Getenv("UPDATE_CHECK") != "false",
+				Usage: "check npm for a newer release shortly after startup and log it (env: UPDATE_CHECK=false to disable)",
 			},
 			&cli.BoolFlag{
 				Name:  "no-injection-guard",
@@ -121,45 +121,37 @@ func main() {
 			},
 			{
 				Name:  "version",
-				Usage: "Display version details and check for updates",
+				Usage: "Show the running version and check npm for a newer release",
 				Action: func(cCtx *cli.Context) error {
+					channel, path := updater.DetectInstallChannel()
+					fmt.Printf("lamrouter version %s (%s/%s)\n", updater.CurrentVersion, runtime.GOOS, runtime.GOARCH)
+					fmt.Printf("Install channel: %s\n", channel)
+					if path != "" {
+						fmt.Printf("Binary path:     %s\n", path)
+					}
+
 					info, err := updater.CheckUpdate(cCtx.Context)
 					if err != nil {
-						fmt.Printf("lamrouter version %s (%s/%s)\nUpdate check failed: %v\n", updater.CurrentVersion, runtime.GOOS, runtime.GOARCH, err)
+						fmt.Printf("Latest on npm:   unavailable (%v)\n", err)
 						return nil
 					}
-					fmt.Printf("lamrouter version %s (%s/%s)\n", info.CurrentVersion, info.OS, info.Arch)
-					fmt.Printf("Latest version: %s\n", info.LatestVersion)
+					fmt.Printf("Latest on npm:   %s\n", info.LatestVersion)
 					if info.HasUpdate {
-						fmt.Printf("\n🚀 NEW UPDATE AVAILABLE! (%s)\nNotes: %s\nRun 'lamrouter update' to install.\n", info.LatestVersion, info.ReleaseNotes)
+						fmt.Printf("\n🚀 UPDATE AVAILABLE: %s → %s\nUpdate:  %s\nRestart: %s\n", info.CurrentVersion, info.LatestVersion, info.UpdateCommand, info.RestartHint)
+						if info.ReleaseURL != "" {
+							fmt.Printf("Release: %s\n", info.ReleaseURL)
+						}
 					} else {
-						fmt.Println("App is up to date.")
+						fmt.Printf("\n✅ Up to date.\n")
 					}
 					return nil
 				},
 			},
 			{
-				Name:  "update",
-				Usage: "Check and perform self-update to the latest version",
-				Action: func(cCtx *cli.Context) error {
-					fmt.Printf("Checking for updates (current: %s)...\n", updater.CurrentVersion)
-					info, err := updater.CheckUpdate(cCtx.Context)
-					if err != nil {
-						return fmt.Errorf("update check failed: %w", err)
-					}
-					if !info.HasUpdate {
-						fmt.Printf("lamrouter is already on the latest version (%s).\n", info.CurrentVersion)
-						return nil
-					}
-					fmt.Printf("Downloading update v%s...\n", info.LatestVersion)
-					if err := updater.PerformSelfUpdate(info.DownloadURL); err != nil {
-						return fmt.Errorf("update failed: %w", err)
-					}
-					fmt.Println("✅ lamrouter updated successfully!")
-					return nil
-				},
-			},
-			{
+				Name:   "update",
+				Usage:  "Install the newest release (delegates to npm for npm installs)",
+				Action: runUpdate,
+			}, {
 				Name:  "mitm",
 				Usage: "Manage MITM proxy for CLI tool traffic interception",
 				Subcommands: []*cli.Command{
@@ -237,7 +229,7 @@ func runServer(cCtx *cli.Context) error {
 	log.Printf("[config] token savers — rtk=%v caveman=%v (%s) ponytail=%v (%s)", ts.RTKEnabled(), ts.CavemanEnabled(), ts.CavemanLevel(), ts.PonytailEnabled(), ts.PonytailLevel())
 	log.Printf("[config] prompt-injection guard enabled=%v", ts.InjectionGuardEnabled())
 
-	updater.StartBackgroundCheck(cCtx.Bool("auto-update"))
+	updater.StartBackgroundCheck(cCtx.Bool("update-check"))
 
 	r := setupRouter(cfg, repo, ts)
 
@@ -418,4 +410,43 @@ func startEmbeddedServer(cCtx *cli.Context, cfg *config.Config) (func(), error) 
 	}
 
 	return cleanup, nil
+}
+
+// runUpdate installs the newest release. For an npm-owned binary it delegates to
+// npm and never writes inside node_modules itself; a manually installed binary
+// gets instructions instead, because guessing how a binary was placed on disk is
+// how you end up replacing a running gateway with the wrong file.
+func runUpdate(cCtx *cli.Context) error {
+	channel, path := updater.DetectInstallChannel()
+	fmt.Printf("Current version: %s (%s)\n", updater.CurrentVersion, channel)
+	if path != "" {
+		fmt.Printf("Binary path:     %s\n", path)
+	}
+
+	info, err := updater.CheckUpdate(cCtx.Context)
+	if err != nil {
+		return fmt.Errorf("npm version check failed: %w", err)
+	}
+	fmt.Printf("Latest on npm:   %s\n", info.LatestVersion)
+
+	if !info.HasUpdate {
+		fmt.Printf("\n✅ Already on the latest release (%s). Nothing to do.\n", info.CurrentVersion)
+		return nil
+	}
+
+	if channel != updater.ChannelNPM {
+		fmt.Printf("\n⚠️  This binary was not installed by npm, so `npm i -g` would not replace it.\n")
+		fmt.Printf("    Update it the way it was installed:\n")
+		fmt.Printf("      npm install:  %s\n", updater.NPMUpdateCommand(""))
+		fmt.Printf("      source build: git pull --ff-only && make install\n")
+		fmt.Printf("    Then restart the service: %s\n", updater.RestartHint)
+		return nil
+	}
+
+	fmt.Printf("\n⬇️  Installing lam-router %s via npm...\n", info.LatestVersion)
+	if err := updater.RunNPMUpdate(info.LatestVersion); err != nil {
+		return err
+	}
+	fmt.Printf("\n✅ Installed %s. Restart the service to run it: %s\n", info.LatestVersion, updater.RestartHint)
+	return nil
 }

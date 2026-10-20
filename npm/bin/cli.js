@@ -61,6 +61,10 @@ function findBinary() {
     if (fs.existsSync(p)) {
       try {
         fs.accessSync(p, fs.constants.X_OK);
+        // The npm-installed platform package is missing, so this binary is not
+        // npm-managed and may be an older build: say so instead of silently
+        // running something other than the package the user just installed.
+        console.error(`⚠️  Platform package ${targetPkg || platformKey} is not installed; falling back to ${p} (not npm-managed).`);
         return p;
       } catch {}
     }

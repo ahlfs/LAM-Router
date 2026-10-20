@@ -65,7 +65,7 @@ Catatan: Next pakai prefix `/api/v1/...`, Go di root `/...`. Hanya `v1beta/model
 | **Media TTS Voices** | `GET /audio/voices`, `GET /v1/audio/voices` | ✅ | Dynamic voice fetcher untuk ElevenLabs, Deepgram, MiniMax, Inworld |
 | **Translator Console Logs** | `GET /api/translator/stream`, `GET /translator/console-logs` | ✅ | Live streaming in-process log buffer untuk dashboard |
 | **OAuth Token Refresh** | `POST /v1/oauth/refresh`, `POST /v1/oauth/authorize` | ✅ | Antigravity, xAI, Codex, GitHub, iFlow, Gemini CLI, Kimi Coding, Qoder, CodeBuddy CN/INTL, Grok CLI |
-| **App Version & Self-Update**| `GET /api/version`, `POST /api/version/update` | ✅ | Semver check dan in-place binary update |
+| **App Version & Update Cek**| `GET /api/version` (read-only) | ✅ | Cek versi ke registry npm; update dijalankan npm (`npm i -g lam-router@latest`), tanpa endpoint tulis |
 | **CRUD Providers/Keys/Combos**| Direct SQLite Shared Access | ✅ | Membaca/menulis langsung ke SQLite `data.sqlite` |
 
 ---

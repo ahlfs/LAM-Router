@@ -5,7 +5,7 @@ DATA_DIR ?= $(HOME)/.lam-router
 RTK ?=
 CAVEMAN ?=
 PONYTAIL ?=
-AUTO_UPDATE ?= false
+UPDATE_CHECK ?= true
 
 LDFLAGS := -s -w -X 'lamrouter/internal/updater.CurrentVersion=$(VERSION)'
 
@@ -59,11 +59,11 @@ install: build
 
 ## run — start proxy (PORT=20128)
 run: build
-	PORT=$(PORT) DATA_DIR=$(DATA_DIR) ./$(BINARY_NAME) $(if $(RTK),--rtk=$(RTK)) $(if $(CAVEMAN),--caveman=$(CAVEMAN)) $(if $(PONYTAIL),--ponytail=$(PONYTAIL)) --auto-update=$(AUTO_UPDATE)
+	PORT=$(PORT) DATA_DIR=$(DATA_DIR) ./$(BINARY_NAME) $(if $(RTK),--rtk=$(RTK)) $(if $(CAVEMAN),--caveman=$(CAVEMAN)) $(if $(PONYTAIL),--ponytail=$(PONYTAIL)) --update-check=$(UPDATE_CHECK)
 
 ## dev — start with go run (auto-rebuild)
 dev:
-	PORT=$(PORT) DATA_DIR=$(DATA_DIR) go run -ldflags="$(LDFLAGS)" ./cmd/lamrouter/ $(if $(RTK),--rtk=$(RTK)) $(if $(CAVEMAN),--caveman=$(CAVEMAN)) $(if $(PONYTAIL),--ponytail=$(PONYTAIL)) --auto-update=$(AUTO_UPDATE)
+	PORT=$(PORT) DATA_DIR=$(DATA_DIR) go run -ldflags="$(LDFLAGS)" ./cmd/lamrouter/ $(if $(RTK),--rtk=$(RTK)) $(if $(CAVEMAN),--caveman=$(CAVEMAN)) $(if $(PONYTAIL),--ponytail=$(PONYTAIL)) --update-check=$(UPDATE_CHECK)
 
 ## version — print binary version
 version:
@@ -134,5 +134,5 @@ help:
 	@echo "Options:"
 	@echo "  make run PORT=3000 VERSION=1.1.0"
 	@echo "  make run DATA_DIR=/path/to/data"
-	@echo "  make run CAVEMAN=true PONYTAIL=true AUTO_UPDATE=true"
+	@echo "  make run CAVEMAN=true PONYTAIL=true UPDATE_CHECK=true"
 	@echo "  make run RTK=false"
