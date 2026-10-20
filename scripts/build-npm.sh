@@ -20,6 +20,27 @@
 
 set -euo pipefail
 
+# ::notice::/::warning::/::error:: lines render as GitHub run annotations, which
+# is how a CI problem stays diagnosable from the API without the job log.
+# Locally they are plain text on stdout/stderr.
+note()      { printf '::notice::%s\n' "$*"; }
+warn()      { printf '::warning::%s\n' "$*" >&2; }
+fail_note() { printf '::error::%s\n' "$*" >&2; }
+
+# A publish that silently does nothing must never look like a release. Read the
+# exact version back from the registry, polling because propagation is not
+# instant, instead of trusting npm's exit status alone.
+registry_has_version() {
+  local pkg="$1" want="$2" got i
+  local delay="${REGISTRY_POLL_DELAY:-3}"
+  for i in 1 2 3 4 5; do
+    got="$(npm view "$pkg@$want" version 2>/dev/null || true)"
+    [ "$got" = "$want" ] && return 0
+    sleep "$delay"
+  done
+  return 1
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -234,24 +255,51 @@ if [[ "${1:-}" == "--publish" ]]; then
     fi
     echo "  → Publishing lam-router-$DIR..."
     LOG="$(mktemp)"
+    PUBLISHED=0
     if ! (cd "$ROOT_DIR/npm/platforms/$DIR" && npm publish --access public) 2>&1 | tee "$LOG"; then
       if grep -q 'spam detection' "$LOG"; then
         REFUSED+=("$entry")
-        echo "  ⚠️  npm refuses the name lam-router-$DIR (name screening, not an auth error) — continuing." >&2
+        warn "npm refuses the name lam-router-$DIR (name screening, not an auth error) — the launcher serves that platform from the GitHub Release"
       else
-        echo "❌ Publishing lam-router-$DIR failed for a reason other than name screening." >&2
+        fail_note "publishing lam-router-$DIR failed for a reason other than name screening"
         rm -f "$LOG"
         exit 1
       fi
+    else
+      PUBLISHED=1
     fi
     rm -f "$LOG"
+    if [ "$PUBLISHED" = "1" ]; then
+      if ! registry_has_version "lam-router-$DIR" "$VERSION"; then
+        fail_note "lam-router-$DIR@$VERSION: npm reported success but the registry does not serve it"
+        exit 1
+      fi
+      note "published lam-router-$DIR@$VERSION (read back from the registry)"
+    fi
   done
 
+  # Stage marker: the annotation trail must show whether the release reached the
+  # root publish at all, so a missing root package is never guesswork.
+  note "root stage reached (platforms refused: ${#REFUSED[@]})"
   if [ "$(npm view "lam-router@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
     echo "  ⏭️  lam-router@$VERSION already on the registry — skipping"
+    note "root: already on the registry, nothing to publish"
   else
     echo "  → Publishing root package lam-router..."
-    (cd "$ROOT_DIR/npm" && npm publish --access public)
+    LOG="$(mktemp)"
+    if (cd "$ROOT_DIR/npm" && npm publish --access public) 2>&1 | tee "$LOG"; then
+      note "root publish output: $(tr '\n' '|' < "$LOG" | cut -c1-500)"
+    else
+      fail_note "root publish FAILED: $(tr '\n' '|' < "$LOG" | cut -c1-800)"
+      rm -f "$LOG"
+      exit 1
+    fi
+    rm -f "$LOG"
+    if ! registry_has_version lam-router "$VERSION"; then
+      fail_note "root publish exited 0 but the registry does not serve lam-router@$VERSION"
+      exit 1
+    fi
+    note "published lam-router@$VERSION (read back from the registry)"
   fi
   echo "🎉 Published LAM-Router v$VERSION to NPM."
 
