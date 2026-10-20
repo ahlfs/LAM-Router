@@ -1,7 +1,10 @@
 package webdist
 
 import (
+	"encoding/json"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -41,26 +44,7 @@ func TestEmbeddedBundleHasNoStaleUpdateRecipe(t *testing.T) {
 }
 
 func TestEmbeddedBundleOffersNPMUpdate(t *testing.T) {
-	sub, err := fs.Sub(distFS, "dist")
-	if err != nil {
-		t.Fatalf("open embedded dist: %v", err)
-	}
-
-	name := "assets/settings-CLHTY3d8.js"
-	if _, err := fs.Stat(sub, name); err != nil {
-		// A future rebuild changes the content hash; fall back to the new chunk.
-		names, globErr := fs.Glob(sub, "assets/settings-*.js")
-		if globErr != nil || len(names) == 0 {
-			t.Fatalf("no settings chunk in embedded dist: %v", err)
-		}
-		name = names[0]
-	}
-
-	blob, err := fs.ReadFile(sub, name)
-	if err != nil {
-		t.Fatalf("read %s: %v", name, err)
-	}
-	text := string(blob)
+	text := readEmbeddedAsset(t, "assets/settings-*.js")
 
 	if !strings.Contains(text, "npm i -g lam-router@latest") {
 		t.Error("settings bundle does not offer the npm update command")
@@ -71,4 +55,91 @@ func TestEmbeddedBundleOffersNPMUpdate(t *testing.T) {
 	if strings.Contains(text, `="0.1.3"`) {
 		t.Error("settings bundle still pins the stale SPA version constant 0.1.3")
 	}
+}
+
+// The update hook hands its fields straight to JSX as text, so a payload that
+// is forwarded unconsumed makes React reject the render (error #31, "Objects are
+// not valid as a React child") and the whole route collapses into its error
+// boundary. Verified on a live instance: /version answers {currentVersion,
+// latestVersion, hasUpdate, ...}, which is why every field must be unwrapped.
+func TestEmbeddedBundleVersionHookConsumesVersionPayload(t *testing.T) {
+	text := readEmbeddedAsset(t, "assets/settings-*.js")
+
+	banned := []string{
+		"latestVersion:s??null",
+		"releases/tag/${s??re}",
+	}
+	for _, b := range banned {
+		if strings.Contains(text, b) {
+			t.Errorf("settings bundle forwards the raw /version payload to JSX (%q)", b)
+		}
+	}
+
+	required := []string{
+		"latestVersion:s&&s.latestVersion?s.latestVersion:null",
+		"s&&s.releaseUrl?s.releaseUrl",
+	}
+	for _, r := range required {
+		if !strings.Contains(text, r) {
+			t.Errorf("settings bundle does not consume /version field-wise (missing %q)", r)
+		}
+	}
+}
+
+// The bundle is hand-maintained (its sources live outside this repository), so
+// its static version labels drift silently: 2.0.0 shipped a login screen that
+// still announced "v1.8.4 Live". Tie them to the npm package version, which the
+// release process bumps before tagging.
+func TestEmbeddedBundleVersionLabelsMatchPackage(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "npm", "package.json"))
+	if err != nil {
+		t.Fatalf("read npm/package.json: %v", err)
+	}
+	var pkg struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		t.Fatalf("parse npm/package.json: %v", err)
+	}
+	if pkg.Version == "" {
+		t.Fatal("npm/package.json has an empty version")
+	}
+
+	settings := readEmbeddedAsset(t, "assets/settings-*.js")
+	if want := `Ce="` + pkg.Version + `"`; !strings.Contains(settings, want) {
+		t.Errorf("settings bundle version constant is not %q", want)
+	}
+
+	index := readEmbeddedAsset(t, "assets/index-*.js")
+	if want := `"v` + pkg.Version + ` Live"`; !strings.Contains(index, want) {
+		t.Errorf("login screen version label is not %q", want)
+	}
+}
+
+// readEmbeddedAsset concatenates every embedded asset matching the glob, so a
+// rebuild that renames the content-hashed chunk keeps the assertions working.
+func readEmbeddedAsset(t *testing.T, pattern string) string {
+	t.Helper()
+
+	sub, err := fs.Sub(distFS, "dist")
+	if err != nil {
+		t.Fatalf("open embedded dist: %v", err)
+	}
+	names, err := fs.Glob(sub, pattern)
+	if err != nil {
+		t.Fatalf("glob %s: %v", pattern, err)
+	}
+	if len(names) == 0 {
+		t.Fatalf("no embedded asset matches %s", pattern)
+	}
+
+	var sb strings.Builder
+	for _, name := range names {
+		blob, err := fs.ReadFile(sub, name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		sb.Write(blob)
+	}
+	return sb.String()
 }

@@ -1,6 +1,6 @@
 {
   "name": "lam-router",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Ultra-fast AI API proxy router with multi-provider failover, virtual combos, token savers, and terminal UI",
   "bin": {
     "lam-router": "bin/cli.js",
@@ -12,11 +12,11 @@
     "LICENSE"
   ],
   "optionalDependencies": {
-    "lam-router-linux-x64": "2.0.0",
-    "lam-router-linux-arm64": "2.0.0",
-    "lam-router-darwin-arm64": "2.0.0",
-    "lam-router-darwin-x64": "2.0.0",
-    "lam-router-win32-x64": "2.0.0"
+    "lam-router-linux-x64": "2.0.1",
+    "lam-router-linux-arm64": "2.0.1",
+    "lam-router-darwin-arm64": "2.0.1",
+    "lam-router-darwin-x64": "2.0.1",
+    "lam-router-win32-x64": "2.0.1"
   },
   "keywords": [
     "ai",
