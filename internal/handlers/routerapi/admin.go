@@ -3,14 +3,17 @@ package routerapi
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 	"lamrouter/internal/handlerutil"
 )
 
@@ -19,11 +22,76 @@ const (
 	AdminSessionTTL    = 7 * 24 * time.Hour
 )
 
-// HashPassword hashes a password with sha256 + salt for simple, robust local verification.
-func HashPassword(password string) string {
-	salt := "lam-router-salt"
-	h := sha256.Sum256([]byte(salt + ":" + password))
-	return hex.EncodeToString(h[:])
+// loginAttemptTracker tracks failed login attempts for brute-force rate limiting.
+type loginAttemptTracker struct {
+	mu       sync.Mutex
+	attempts map[string][]int64
+}
+
+var loginLimiter = &loginAttemptTracker{
+	attempts: make(map[string][]int64),
+}
+
+func (t *loginAttemptTracker) isRateLimited(ip string) bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now().UnixMilli()
+	cutoff := now - 60*1000 // 1 minute window
+
+	timestamps := t.attempts[ip]
+	valid := make([]int64, 0, len(timestamps))
+	for _, ts := range timestamps {
+		if ts > cutoff {
+			valid = append(valid, ts)
+		}
+	}
+	t.attempts[ip] = valid
+
+	return len(valid) >= 5 // max 5 failed attempts per minute
+}
+
+func (t *loginAttemptTracker) recordFailedAttempt(ip string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now().UnixMilli()
+	t.attempts[ip] = append(t.attempts[ip], now)
+}
+
+func (t *loginAttemptTracker) recordSuccess(ip string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	delete(t.attempts, ip)
+}
+
+// HashPassword hashes a password using bcrypt with standard cost.
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(bytes), nil
+}
+
+// verifyPassword verifies password against stored hash, supporting both bcrypt and legacy SHA-256.
+// Returns (matched, needsUpgrade).
+func verifyPassword(password, storedHash string) (bool, bool) {
+	if strings.HasPrefix(storedHash, "$2a$") || strings.HasPrefix(storedHash, "$2b$") {
+		err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(password))
+		return err == nil, false
+	}
+
+	// Legacy SHA-256 fallback with constant-time comparison
+	legacySalt := "lam-router-salt"
+	h := sha256.Sum256([]byte(legacySalt + ":" + password))
+	legacyHash := hex.EncodeToString(h[:])
+	if subtle.ConstantTimeCompare([]byte(legacyHash), []byte(storedHash)) == 1 {
+		return true, true // valid, but needs upgrade to bcrypt
+	}
+
+	return false, false
 }
 
 // Check if admin account is configured
@@ -57,6 +125,11 @@ func (h *RouterAPIHandler) verifyAdminSession(r *http.Request) bool {
 		return false
 	}
 
+	// Check via Repo if available to support system secret tokens
+	if h.repo != nil && h.repo.VerifyAdminSession(token) {
+		return true
+	}
+
 	tokenHash := sha256Hex(token)
 	now := time.Now().UnixMilli()
 
@@ -69,7 +142,7 @@ func (h *RouterAPIHandler) verifyAdminSession(r *http.Request) bool {
 }
 
 // Create a new admin session and set cookie
-func (h *RouterAPIHandler) createAdminSession(w http.ResponseWriter) string {
+func (h *RouterAPIHandler) createAdminSession(w http.ResponseWriter, r *http.Request) string {
 	b := make([]byte, 32)
 	rand.Read(b)
 	token := hex.EncodeToString(b)
@@ -80,12 +153,18 @@ func (h *RouterAPIHandler) createAdminSession(w http.ResponseWriter) string {
 
 	_, _ = h.db.Exec("INSERT INTO admin_sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)", tokenHash, now, expiresAt)
 
+	isSecure := false
+	if r != nil {
+		isSecure = r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     AdminSessionCookie,
 		Value:    token,
 		Path:     "/",
 		MaxAge:   int(AdminSessionTTL.Seconds()),
 		HttpOnly: true,
+		Secure:   isSecure,
 		SameSite: http.SameSiteLaxMode,
 	})
 
@@ -121,8 +200,11 @@ func (h *RouterAPIHandler) HandleAdminStatus(w http.ResponseWriter, r *http.Requ
 		}
 		if envPass != "" {
 			now := time.Now().UnixMilli()
-			_, _ = h.db.Exec("INSERT OR REPLACE INTO admin_account (id, password_hash, created_at, updated_at) VALUES (1, ?, ?, ?)", HashPassword(envPass), now, now)
-			hasAdmin = true
+			passHash, err := HashPassword(envPass)
+			if err == nil {
+				_, _ = h.db.Exec("INSERT OR REPLACE INTO admin_account (id, password_hash, created_at, updated_at) VALUES (1, ?, ?, ?)", passHash, now, now)
+				hasAdmin = true
+			}
 		}
 	}
 
@@ -159,20 +241,30 @@ func (h *RouterAPIHandler) HandleAdminSetup(w http.ResponseWriter, r *http.Reque
 	}
 
 	now := time.Now().UnixMilli()
-	passHash := HashPassword(body.Password)
+	passHash, err := HashPassword(body.Password)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to hash password")
+		return
+	}
 
-	_, err := h.db.Exec("INSERT INTO admin_account (id, password_hash, created_at, updated_at) VALUES (1, ?, ?, ?)", passHash, now, now)
+	_, err = h.db.Exec("INSERT INTO admin_account (id, password_hash, created_at, updated_at) VALUES (1, ?, ?, ?)", passHash, now, now)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to save admin credentials")
 		return
 	}
 
-	h.createAdminSession(w)
+	h.createAdminSession(w, r)
 	handlerutil.WriteJSON(w, http.StatusCreated, map[string]any{"authenticated": true})
 }
 
 // POST /v1/admin/login
 func (h *RouterAPIHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Request) {
+	clientIP := handlerutil.GetClientIP(r)
+	if loginLimiter.isRateLimited(clientIP) {
+		handlerutil.WriteJSONError(w, http.StatusTooManyRequests, "Too many failed login attempts. Please wait 1 minute.")
+		return
+	}
+
 	var body struct {
 		Password string `json:"password"`
 	}
@@ -183,16 +275,30 @@ func (h *RouterAPIHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Reque
 
 	storedHash, err := h.getAdminPasswordHash()
 	if err != nil || storedHash == "" {
+		loginLimiter.recordFailedAttempt(clientIP)
 		handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Invalid admin password")
 		return
 	}
 
-	if HashPassword(body.Password) != storedHash {
+	valid, needsUpgrade := verifyPassword(body.Password, storedHash)
+	if !valid {
+		loginLimiter.recordFailedAttempt(clientIP)
 		handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Invalid admin password")
 		return
 	}
 
-	h.createAdminSession(w)
+	// Login succeeded: reset rate limiter
+	loginLimiter.recordSuccess(clientIP)
+
+	// Transparently upgrade legacy SHA-256 hash to bcrypt in database
+	if needsUpgrade {
+		if newBcryptHash, bErr := HashPassword(body.Password); bErr == nil {
+			now := time.Now().UnixMilli()
+			_, _ = h.db.Exec("UPDATE admin_account SET password_hash = ?, updated_at = ? WHERE id = 1", newBcryptHash, now)
+		}
+	}
+
+	h.createAdminSession(w, r)
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true})
 }
 
@@ -214,7 +320,13 @@ func (h *RouterAPIHandler) HandleAdminChangePassword(w http.ResponseWriter, r *h
 	}
 
 	storedHash, err := h.getAdminPasswordHash()
-	if err != nil || storedHash == "" || HashPassword(body.CurrentPassword) != storedHash {
+	if err != nil || storedHash == "" {
+		handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Current admin password is incorrect")
+		return
+	}
+
+	valid, _ := verifyPassword(body.CurrentPassword, storedHash)
+	if !valid {
 		handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Current admin password is incorrect")
 		return
 	}
@@ -229,13 +341,23 @@ func (h *RouterAPIHandler) HandleAdminChangePassword(w http.ResponseWriter, r *h
 	}
 
 	now := time.Now().UnixMilli()
-	newHash := HashPassword(body.NewPassword)
+	newHash, err := HashPassword(body.NewPassword)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to hash new password")
+		return
+	}
+
 	_, err = h.db.Exec("UPDATE admin_account SET password_hash = ?, updated_at = ? WHERE id = 1", newHash, now)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to update admin password")
 		return
 	}
 
+	// Invalidate ALL previous admin sessions to protect compromised sessions
+	_, _ = h.db.Exec("DELETE FROM admin_sessions")
+
+	// Issue fresh session for current client
+	h.createAdminSession(w, r)
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"message": "Admin password updated successfully"})
 }
 

@@ -66,7 +66,7 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 			apiKeyString := ExtractApiKey(r)
 			if apiKeyString == "" {
 				logAuthError(repo, "none", "Authentication required", http.StatusUnauthorized)
-				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer *** header or ?key=<key> query parameter.")
+				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer <key> or X-API-Key header.")
 				return
 			}
 

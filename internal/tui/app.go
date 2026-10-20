@@ -22,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"lamrouter/internal/config"
 )
 
 type tabIndex int
@@ -295,7 +296,14 @@ type Model struct {
 	spinner      spinner.Model
 }
 
-func NewModel(baseURL string) Model {
+func NewModel(baseURL string, authToken ...string) Model {
+	token := ""
+	if len(authToken) > 0 && authToken[0] != "" {
+		token = authToken[0]
+	} else {
+		token = config.LoadConfig().JWTSecret
+	}
+
 	ti := textinput.New()
 	ti.Placeholder = "Type prompt here and press Enter (e.g. Ping test or 1+1)..."
 	ti.CharLimit = 256
@@ -356,7 +364,7 @@ func NewModel(baseURL string) Model {
 	sp.Style = lipgloss.NewStyle().Foreground(ColorPrimary)
 
 	return Model{
-		client:              NewClient(baseURL),
+		client:              NewClient(baseURL, token),
 		activeTab:           tabProviders,
 		providerFilter:      "all",
 		loading:             true,

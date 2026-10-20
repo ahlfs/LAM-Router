@@ -3,7 +3,9 @@ package handlerutil
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"strings"
 
 	"lamrouter/internal/constants"
 )
@@ -107,4 +109,24 @@ func GetString(m map[string]any, key string) string {
 		}
 	}
 	return ""
+}
+
+// GetClientIP extracts the client IP address from standard proxy headers or RemoteAddr.
+func GetClientIP(r *http.Request) string {
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		parts := strings.Split(xff, ",")
+		if len(parts) > 0 {
+			ip := strings.TrimSpace(parts[0])
+			if ip != "" {
+				return ip
+			}
+		}
+	}
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
 }

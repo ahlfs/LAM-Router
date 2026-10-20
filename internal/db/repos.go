@@ -2,6 +2,7 @@ package db
 
 import (
 	"crypto/sha256"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -13,7 +14,8 @@ import (
 )
 
 type Repo struct {
-	db *sql.DB
+	db        *sql.DB
+	jwtSecret string
 }
 
 // NewRepo creates a new repository instance using the provided SQL database connection.
@@ -21,15 +23,24 @@ func NewRepo(db *sql.DB) *Repo {
 	return &Repo{db: db}
 }
 
+// SetJWTSecret configures the JWT / Admin system secret for internal token verification.
+func (r *Repo) SetJWTSecret(secret string) {
+	r.jwtSecret = secret
+}
+
 // RawDB returns the underlying *sql.DB connection for direct queries.
 func (r *Repo) RawDB() *sql.DB {
 	return r.db
 }
 
-// VerifyAdminSession validates an admin session token hash against admin_sessions table.
+// VerifyAdminSession validates an admin session token hash against admin_sessions table,
+// or compares directly against the system secret.
 func (r *Repo) VerifyAdminSession(token string) bool {
 	if token == "" {
 		return false
+	}
+	if r.jwtSecret != "" && subtle.ConstantTimeCompare([]byte(token), []byte(r.jwtSecret)) == 1 {
+		return true
 	}
 	h := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(h[:])

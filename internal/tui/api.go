@@ -74,15 +74,41 @@ type CacheStats struct {
 }
 
 type Client struct {
-	baseURL string
-	http    *http.Client
+	baseURL   string
+	authToken string
+	http      *http.Client
 }
 
-func NewClient(baseURL string) *Client {
+type authTransport struct {
+	token string
+	base  http.RoundTripper
+}
+
+func (t *authTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if t.token != "" && req.Header.Get("Authorization") == "" {
+		req.Header.Set("Authorization", "Bearer "+t.token)
+	}
+	base := t.base
+	if base == nil {
+		base = http.DefaultTransport
+	}
+	return base.RoundTrip(req)
+}
+
+func NewClient(baseURL string, authToken ...string) *Client {
+	token := ""
+	if len(authToken) > 0 {
+		token = authToken[0]
+	}
 	return &Client{
-		baseURL: strings.TrimRight(baseURL, "/"),
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		authToken: token,
 		http: &http.Client{
 			Timeout: 5 * time.Second,
+			Transport: &authTransport{
+				token: token,
+				base:  http.DefaultTransport,
+			},
 		},
 	}
 }

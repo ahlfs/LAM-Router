@@ -213,6 +213,7 @@ func runServer(cCtx *cli.Context) error {
 	defer conn.Close()
 
 	repo := db.NewRepo(conn)
+	repo.SetJWTSecret(cfg.JWTSecret)
 
 	ts := handlers.NewTokenSaverConfig(cCtx.Bool("rtk"), cCtx.Bool("caveman"), cCtx.Bool("ponytail"))
 	if settings, sErr := repo.GetSettings(); sErr == nil && settings != nil {
@@ -340,6 +341,7 @@ func startEmbeddedServer(cCtx *cli.Context, cfg *config.Config) (func(), error) 
 	}
 
 	repo := db.NewRepo(conn)
+	repo.SetJWTSecret(cfg.JWTSecret)
 	ts := handlers.NewTokenSaverConfig(cCtx.Bool("rtk"), cCtx.Bool("caveman"), cCtx.Bool("ponytail"))
 	if settings, sErr := repo.GetSettings(); sErr == nil && settings != nil {
 		rtk := settings.RTKEnabled

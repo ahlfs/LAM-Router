@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/db"
 	"lamrouter/internal/handlers/shared"
+	"lamrouter/internal/middleware"
 )
 
 // InitSchema ensures the LAM-Router tables exist in the SQLite database.
@@ -277,149 +278,164 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	h := NewRouterAPIHandler(repo, ts)
 	_ = InitSchema(repo.RawDB())
 
-	// Admin Domain
+	// Public Admin Status, Setup, and Login Endpoints (available at /v1/admin/* and aliased to /admin/*)
 	r.HandleFunc("/v1/admin/status", h.HandleAdminStatus)
+	r.HandleFunc("/admin/status", h.HandleAdminStatus)
 	r.HandleFunc("/v1/admin/setup", h.HandleAdminSetup)
+	r.HandleFunc("/admin/setup", h.HandleAdminSetup)
 	r.HandleFunc("/v1/admin/login", h.HandleAdminLogin)
-	r.HandleFunc("/v1/admin/change-password", h.HandleAdminChangePassword)
-	r.HandleFunc("/v1/admin/logout", h.HandleAdminLogout)
+	r.HandleFunc("/admin/login", h.HandleAdminLogin)
 
-	// Providers Domain
-	r.HandleFunc("/v1/providers", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleProvidersList(w, req)
-		} else if req.Method == http.MethodPost {
-			h.HandleProviderAdd(w, req)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	r.HandleFunc("/v1/providers/catalog", h.HandleProvidersCatalog)
-	r.HandleFunc("/v1/providers/verify", h.HandleProviderVerify)
-	r.HandleFunc("/v1/providers/{providerId}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleProviderGet(w, req)
-		} else if req.Method == http.MethodDelete {
-			h.HandleProviderDelete(w, req)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	r.HandleFunc("/v1/providers/{providerId}/models", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleProviderModelsList(w, req)
-		} else if req.Method == http.MethodPost {
-			h.HandleCustomModelAdd(w, req)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	r.HandleFunc("/v1/providers/{providerId}/sync", h.HandleProviderSyncModels)
-	r.HandleFunc("/v1/providers/{providerId}/models/toggle", h.HandleProviderModelToggle)
-	r.HandleFunc("/v1/providers/{providerId}/models/{modelId}/toggle", h.HandleProviderModelToggle)
-	r.HandleFunc("/v1/providers/{providerId}/models/{modelId}", h.HandleCustomModelDelete)
-	r.HandleFunc("/v1/providers/{providerId}/reorder", h.HandleProviderReorderConnections)
-
-	// Keys Domain
-	r.HandleFunc("/v1/keys", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleKeysList(w, req)
-		} else if req.Method == http.MethodPost {
-			h.HandleKeyCreate(w, req)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	r.HandleFunc("/v1/keys/{id}/credit", h.HandleKeyAddCredit)
-	r.HandleFunc("/v1/keys/{id}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodDelete {
-			h.HandleKeyDelete(w, req)
-		} else if req.Method == http.MethodPut || req.Method == http.MethodPatch {
-			h.HandleKeyUpdate(w, req)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-
-	// Settings Domain
-	r.HandleFunc("/v1/settings", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleSettingsGet(w, req)
-		} else {
-			h.HandleSettingsUpdate(w, req)
-		}
-	})
-	r.HandleFunc("/v1/settings/token-saver", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleTokenSaverGet(w, req)
-		} else {
-			h.HandleTokenSaverUpdate(w, req)
-		}
-	})
-	r.HandleFunc("/v1/settings/token-saver/test", h.HandleTokenSaverTest)
-	r.HandleFunc("/v1/settings/cache", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleCacheGet(w, req)
-		} else if req.Method == http.MethodDelete {
-			h.HandleCacheClear(w, req)
-		} else {
-			h.HandleCacheUpdate(w, req)
-		}
-	})
-	r.HandleFunc("/v1/settings/fallbacks", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleFallbacksGet(w, req)
-		} else {
-			h.HandleFallbackCreate(w, req)
-		}
-	})
-	r.HandleFunc("/v1/settings/fallbacks/{id}", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodDelete {
-			h.HandleFallbackDelete(w, req)
-		} else {
-			h.HandleFallbackUpdate(w, req)
-		}
-	})
-
-	// Full Database Backup Export & Import (LAM-Router database backup)
-	r.HandleFunc("/v1/settings/backup/export", h.HandleBackupExport)
-	r.HandleFunc("/v1/settings/backup/import", h.HandleBackupImport)
-
-	// Logs & Quota Domain
-	r.HandleFunc("/v1/logs", h.HandleLogsList)
-	r.HandleFunc("/v1/logs/stats", h.HandleLogsStats)
-	r.HandleFunc("/v1/telemetry/active", h.HandleTelemetryActive)
-	r.HandleFunc("/v1/quota", h.HandleQuotaGet)
-
-	// Health Domain
-	r.HandleFunc("/v1/health/models", h.HandleModelsHealthList)
-	r.HandleFunc("/v1/health/models/probe", h.HandleModelsHealthProbe)
-	r.HandleFunc("/v1/health/models/reset", h.HandleModelsHealthReset)
-	r.HandleFunc("/v1/health/models/disable-offline", h.HandleModelsHealthDisableOffline)
-	r.HandleFunc("/v1/health/models/toggle", h.HandleModelsHealthToggle)
-
-	// Tunnel Domain
-	r.HandleFunc("/v1/tunnel/status", h.HandleTunnelStatus)
-	r.HandleFunc("/v1/tunnel/events", h.HandleTunnelEvents)
-	r.HandleFunc("/v1/tunnel/start", h.HandleTunnelStart)
-	r.HandleFunc("/v1/tunnel/stop", h.HandleTunnelStop)
-	r.HandleFunc("/v1/tunnel/config", h.HandleTunnelConfig)
-	r.HandleFunc("/v1/tunnel/install", func(w http.ResponseWriter, req *http.Request) {
-		if req.Method == http.MethodGet {
-			h.HandleTunnelInstallStatus(w, req)
-		} else {
-			h.HandleTunnelInstall(w, req)
-		}
-	})
-
-	// Auth OAuth Domain
-	r.HandleFunc("/v1/auth/{provider}/login", h.HandleOAuthLogin)
+	// Public OAuth Callbacks & Browser Bridge scripts
 	r.HandleFunc("/v1/auth/{provider}/open", h.HandleOAuthOpen)
-	r.HandleFunc("/v1/auth/{provider}/poll", h.HandleOAuthPoll)
-	r.HandleFunc("/v1/auth/{provider}/token", h.HandleOAuthToken)
 	r.HandleFunc("/v1/auth/{provider}/callback", h.HandleOAuthCallback)
+	r.HandleFunc("/v1/auth/{provider}/poll", h.HandleOAuthPoll)
 	r.HandleFunc("/v1/auth/framer/bridge.user.js", h.HandleFramerBridgeScript)
 	r.HandleFunc("/v1/auth/framer/bridge", h.HandleFramerBridgeIngest)
 	r.HandleFunc("/v1/auth/framer/session-sync", h.HandleFramerSessionSync)
+
+	// Protected Admin Domain Routes (requires valid admin session cookie or admin token)
+	r.Group(func(admin chi.Router) {
+		admin.Use(middleware.RequireAdminSession(repo))
+
+		// Admin management
+		admin.HandleFunc("/v1/admin/change-password", h.HandleAdminChangePassword)
+		admin.HandleFunc("/admin/change-password", h.HandleAdminChangePassword)
+		admin.HandleFunc("/v1/admin/logout", h.HandleAdminLogout)
+		admin.HandleFunc("/admin/logout", h.HandleAdminLogout)
+
+		// Providers Domain
+		admin.HandleFunc("/v1/providers", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleProvidersList(w, req)
+			} else if req.Method == http.MethodPost {
+				h.HandleProviderAdd(w, req)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		admin.HandleFunc("/v1/providers/catalog", h.HandleProvidersCatalog)
+		admin.HandleFunc("/v1/providers/verify", h.HandleProviderVerify)
+		admin.HandleFunc("/v1/providers/{providerId}", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleProviderGet(w, req)
+			} else if req.Method == http.MethodDelete {
+				h.HandleProviderDelete(w, req)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		admin.HandleFunc("/v1/providers/{providerId}/models", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleProviderModelsList(w, req)
+			} else if req.Method == http.MethodPost {
+				h.HandleCustomModelAdd(w, req)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		admin.HandleFunc("/v1/providers/{providerId}/sync", h.HandleProviderSyncModels)
+		admin.HandleFunc("/v1/providers/{providerId}/models/toggle", h.HandleProviderModelToggle)
+		admin.HandleFunc("/v1/providers/{providerId}/models/{modelId}/toggle", h.HandleProviderModelToggle)
+		admin.HandleFunc("/v1/providers/{providerId}/models/{modelId}", h.HandleCustomModelDelete)
+		admin.HandleFunc("/v1/providers/{providerId}/reorder", h.HandleProviderReorderConnections)
+
+		// Keys Domain
+		admin.HandleFunc("/v1/keys", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleKeysList(w, req)
+			} else if req.Method == http.MethodPost {
+				h.HandleKeyCreate(w, req)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+		admin.HandleFunc("/v1/keys/{id}/credit", h.HandleKeyAddCredit)
+		admin.HandleFunc("/v1/keys/{id}", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodDelete {
+				h.HandleKeyDelete(w, req)
+			} else if req.Method == http.MethodPut || req.Method == http.MethodPatch {
+				h.HandleKeyUpdate(w, req)
+			} else {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			}
+		})
+
+		// Settings Domain
+		admin.HandleFunc("/v1/settings", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleSettingsGet(w, req)
+			} else {
+				h.HandleSettingsUpdate(w, req)
+			}
+		})
+		admin.HandleFunc("/v1/settings/token-saver", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleTokenSaverGet(w, req)
+			} else {
+				h.HandleTokenSaverUpdate(w, req)
+			}
+		})
+		admin.HandleFunc("/v1/settings/token-saver/test", h.HandleTokenSaverTest)
+		admin.HandleFunc("/v1/settings/cache", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleCacheGet(w, req)
+			} else if req.Method == http.MethodDelete {
+				h.HandleCacheClear(w, req)
+			} else {
+				h.HandleCacheUpdate(w, req)
+			}
+		})
+		admin.HandleFunc("/v1/settings/fallbacks", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleFallbacksGet(w, req)
+			} else {
+				h.HandleFallbackCreate(w, req)
+			}
+		})
+		admin.HandleFunc("/v1/settings/fallbacks/{id}", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodDelete {
+				h.HandleFallbackDelete(w, req)
+			} else {
+				h.HandleFallbackUpdate(w, req)
+			}
+		})
+
+		// Full Database Backup Export & Import (LAM-Router database backup)
+		admin.HandleFunc("/v1/settings/backup/export", h.HandleBackupExport)
+		admin.HandleFunc("/v1/settings/backup/import", h.HandleBackupImport)
+
+		// Logs & Quota Domain
+		admin.HandleFunc("/v1/logs", h.HandleLogsList)
+		admin.HandleFunc("/v1/logs/stats", h.HandleLogsStats)
+		admin.HandleFunc("/v1/telemetry/active", h.HandleTelemetryActive)
+		admin.HandleFunc("/v1/quota", h.HandleQuotaGet)
+
+		// Health Domain
+		admin.HandleFunc("/v1/health/models", h.HandleModelsHealthList)
+		admin.HandleFunc("/v1/health/models/probe", h.HandleModelsHealthProbe)
+		admin.HandleFunc("/v1/health/models/reset", h.HandleModelsHealthReset)
+		admin.HandleFunc("/v1/health/models/disable-offline", h.HandleModelsHealthDisableOffline)
+		admin.HandleFunc("/v1/health/models/toggle", h.HandleModelsHealthToggle)
+
+		// Tunnel Domain
+		admin.HandleFunc("/v1/tunnel/status", h.HandleTunnelStatus)
+		admin.HandleFunc("/v1/tunnel/events", h.HandleTunnelEvents)
+		admin.HandleFunc("/v1/tunnel/start", h.HandleTunnelStart)
+		admin.HandleFunc("/v1/tunnel/stop", h.HandleTunnelStop)
+		admin.HandleFunc("/v1/tunnel/config", h.HandleTunnelConfig)
+		admin.HandleFunc("/v1/tunnel/install", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandleTunnelInstallStatus(w, req)
+			} else {
+				h.HandleTunnelInstall(w, req)
+			}
+		})
+
+		// Auth OAuth Admin triggers
+		admin.HandleFunc("/v1/auth/{provider}/login", h.HandleOAuthLogin)
+		admin.HandleFunc("/v1/auth/{provider}/token", h.HandleOAuthToken)
+	})
+
 	return h
 }

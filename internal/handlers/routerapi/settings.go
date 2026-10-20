@@ -153,6 +153,10 @@ func (h *RouterAPIHandler) HandleBackupImport(w http.ResponseWriter, r *http.Req
 		URL string `json:"url"`
 	}
 	if json.Unmarshal(bodyBytes, &urlWrapper) == nil && urlWrapper.URL != "" && (strings.HasPrefix(urlWrapper.URL, "http://") || strings.HasPrefix(urlWrapper.URL, "https://")) {
+		if err := handlerutil.AssertPublicURL(urlWrapper.URL); err != nil {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("SSRF protection blocked URL: %v", err))
+			return
+		}
 		client := &http.Client{Timeout: 15 * time.Second}
 		resp, err := client.Get(urlWrapper.URL)
 		if err != nil {
