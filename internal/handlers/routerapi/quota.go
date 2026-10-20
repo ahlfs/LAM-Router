@@ -8,12 +8,22 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime"
 	"strings"
 	"time"
 
 	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/log"
 )
+
+// antigravityUserAgent adalah identitas klien yang dikirim ke endpoint Cloud
+// Code. Google membatasi ISI payload berdasarkan User-Agent ini: hanya
+// identitas hub yang mutakhir yang dilayani ringkasan kuota penuh — grup
+// "Gemini Models" sekaligus grup "Claude and GPT models". Identitas lain
+// (termasuk "Antigravity/1.0 (VSCode)") tetap dilayani HTTP 200 tetapi dengan
+// payload terpotong yang membuang grup Gemini tanpa error apa pun, sehingga
+// kuota Gemini hilang dari dashboard secara diam-diam.
+var antigravityUserAgent = fmt.Sprintf("antigravity/hub/2.9.1 %s/%s", runtime.GOOS, runtime.GOARCH)
 
 type LiveModelQuotaItem struct {
 	Name            string `json:"name"`
@@ -164,7 +174,7 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	if err == nil {
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("User-Agent", "Antigravity/1.0 (VSCode)")
+		req.Header.Set("User-Agent", antigravityUserAgent)
 		req.Header.Set("x-goog-api-client", "gl-node/18.0.0 gd/1.0.0")
 
 		client := &http.Client{Timeout: 10 * time.Second}
@@ -223,7 +233,7 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	}
 	reqModels.Header.Set("Authorization", "Bearer "+token)
 	reqModels.Header.Set("Content-Type", "application/json")
-	reqModels.Header.Set("User-Agent", "Antigravity/1.0 (VSCode)")
+	reqModels.Header.Set("User-Agent", antigravityUserAgent)
 	reqModels.Header.Set("x-goog-api-client", "gl-node/18.0.0 gd/1.0.0")
 
 	client := &http.Client{Timeout: 10 * time.Second}
