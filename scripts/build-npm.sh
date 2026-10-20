@@ -31,16 +31,18 @@ fail_note() { printf '::error::%s\n' "$*" >&2; }
 # exact version back from the registry, polling because propagation is not
 # instant, instead of trusting npm's exit status alone.
 registry_has_version() {
-  local pkg="$1" want="$2" got i
+  local pkg="$1" want="$2" got i http
   local delay="${REGISTRY_POLL_DELAY:-15}"
-  local attempts="${REGISTRY_ATTEMPTS:-20}"
-  # npm answers a publish with "Your package is being processed and may take a
-  # few minutes to become available", and npmjs serves packuments with a
-  # cache-control max-age of 300s, so a read-back budgeted in seconds fails
-  # releases that were in fact published. Budget minutes (20 x 15s by default).
+  local attempts="${REGISTRY_ATTEMPTS:-40}"
+  local registry="${REGISTRY:-https://registry.npmjs.org}"
+  # Ask the registry over HTTP FIRST. `npm view` answers from npm's local
+  # packument cache (npmjs serves it with max-age=300), so a read-back recycles a
+  # pre-publish packument and reports a package that did publish as missing -
+  # which is exactly how two releases were failed. The tarball endpoint is also
+  # the literal meaning of "the registry serves it".
   for i in $(seq 1 "$attempts"); do
-    got="$(npm view "$pkg@$want" version 2>/dev/null || true)"
-    if [ "$got" = "$want" ]; then
+    http="$(curl -s -o /dev/null -w '%{http_code}' "$registry/$pkg/-/$pkg-$want.tgz" 2>/dev/null || true)"
+    if [ "$http" = "200" ] || [ "$(npm view "$pkg@$want" version 2>/dev/null || true)" = "$want" ]; then
       if [ "$i" -gt 1 ]; then
         note "$pkg@$want became visible after $((i - 1)) poll(s)"
       fi

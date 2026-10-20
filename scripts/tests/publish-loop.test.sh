@@ -5,12 +5,13 @@
 # failure, so one package name that npm's screening refuses blocked the root
 # package and every other platform too. The opposite failure is worse and
 # silent: a publish that reports success and never lands must not pass for a
-# release, which is why the script now reads every published version back from
-# the registry.
+# release, which is why the script reads every published version back from the
+# registry - over HTTP, because `npm view` can answer from a stale packument
+# cache and report a package that did publish as missing.
 #
 # The test runs the REAL loop and REAL helper functions, cut out of the script
-# with sed, against a stub `npm` that keeps state in a directory. No network, no
-# token, no registry writes.
+# with sed, against stub `npm` and `curl` binaries that keep state in a
+# directory. No network, no token, no registry writes.
 
 set -uo pipefail
 
@@ -25,7 +26,8 @@ STATUS=0
 # ---------------------------------------------------------------------------
 # Stub npm on PATH: `view` answers from a marker directory, `publish` records
 # one. STUB_REFUSE_DIR / STUB_FAIL_DIR force specific failures, STUB_SILENT
-# makes publish report success without landing (the silent-success case).
+# makes publish report success without landing (the silent-success case),
+# STUB_FLAKY_DIR makes npm's signing service return 502.
 # ---------------------------------------------------------------------------
 make_stub() {
   mkdir -p "$WORK/bin"
@@ -37,9 +39,8 @@ case "${1:-}" in
     spec="${2:-}"
     name="${spec%%@*}"
     if [ -f "$STATE/$name" ]; then
-      # STUB_LAG_VIEWS simulates registry propagation: the version IS published
-      # but stays invisible for the first N read-backs (npm's "may take a few
-      # minutes to become available").
+      # STUB_LAG_VIEWS simulates the npm-view fallback lagging: the version IS
+      # published but stays invisible for the first N read-backs.
       if [ "${STUB_LAG_VIEWS:-0}" != "0" ]; then
         n=$(cat "$STATE/.lag-$name" 2>/dev/null || echo 0)
         if [ "$n" -lt "$STUB_LAG_VIEWS" ]; then echo $((n + 1)) > "$STATE/.lag-$name"; exit 1; fi
@@ -90,6 +91,28 @@ esac
 exit 0
 STUB
   chmod +x "$WORK/bin/npm"
+
+  # `curl -s -o /dev/null -w '%{http_code}' <registry>/<pkg>/-/<pkg>-<ver>.tgz`
+  # answers 200 only once that version really landed, mirroring the registry's
+  # tarball endpoint. STUB_LAG_HTTP delays it, STUB_HTTP_404 blocks HTTP
+  # entirely so the npm-view fallback is exercised.
+  cat > "$WORK/bin/curl" <<'STUBCURL'
+#!/usr/bin/env bash
+STATE="${STUB_STATE:?}"
+url="${!#}"
+file="$(basename "$url")"
+name="${file%-${STUB_VERSION:-2.0.0}.tgz}"
+if [ "${STUB_HTTP_404:-0}" = "1" ]; then echo 404; exit 0; fi
+if [ -f "$STATE/$name" ]; then
+  if [ "${STUB_LAG_HTTP:-0}" != "0" ]; then
+    n=$(cat "$STATE/.laghttp-$name" 2>/dev/null || echo 0)
+    if [ "$n" -lt "$STUB_LAG_HTTP" ]; then echo $((n + 1)) > "$STATE/.laghttp-$name"; echo 404; exit 0; fi
+  fi
+  echo 200; exit 0
+fi
+echo 404; exit 0
+STUBCURL
+  chmod +x "$WORK/bin/curl"
 }
 
 # ---------------------------------------------------------------------------
@@ -128,6 +151,7 @@ PRELUDE
 setup_work() {
   WORK="$(mktemp -d)"
   export WORK
+  export STUB_VERSION=2.0.0
   make_stub
   make_harness
   export STUB_STATE="$WORK/state"
@@ -137,7 +161,8 @@ setup_work() {
 
 teardown_work() {
   unset STUB_REFUSE_DIR STUB_FAIL_DIR STUB_SILENT STUB_ALL_PUBLISHED STUB_STATE \
-        STUB_FLAKY_DIR STUB_FLAKY_ALWAYS STUB_REGISTRY STUB_USER \
+        STUB_FLAKY_DIR STUB_FLAKY_ALWAYS STUB_REGISTRY STUB_USER STUB_VERSION \
+        STUB_LAG_VIEWS STUB_LAG_HTTP STUB_HTTP_404 \
         PUBLISH_RETRY_DELAY PUBLISH_ATTEMPTS 2>/dev/null || true
   rm -rf "$WORK"
 }
@@ -236,13 +261,25 @@ teardown_work
 ok "aborts instead of retrying forever"                    1 "failed for a reason other than name screening"
 ok "the root package is not published"                     1 "Publishing lam-router-darwin-x64" "stub-published npm"
 
-echo "case 8: a published package that is still propagating is waited for"
+echo "case 8: the HTTP probe carries the read-back when npm-view is stale"
 setup_work
-export STUB_LAG_VIEWS=2
+export STUB_LAG_HTTP=2
+# The fallback must never win here, so success can only have come from the HTTP
+# probe - that is the whole point of the read-back asking the registry directly.
+export STUB_LAG_VIEWS=99
 run_loop
 teardown_work
-ok "the release completes despite propagation lag"         0 "stub-published npm"
-ok "the wait is reported with the poll count"              0 "became visible after 2 poll(s)"
+ok "the release completes on the HTTP probe alone"         0 "stub-published npm"
+ok "the wait is reported with the HTTP poll count"         0 "became visible after 2 poll(s)"
+
+echo "case 9: when HTTP is unavailable the npm view fallback still waits"
+setup_work
+export STUB_HTTP_404=1
+export STUB_LAG_VIEWS=1
+run_loop
+teardown_work
+ok "the fallback read-back still completes the release"    0 "stub-published npm"
+ok "the fallback reports its own poll count"               0 "became visible after 1 poll(s)"
 
 echo
 echo "publish-loop: $PASS passed, $FAIL failed"
