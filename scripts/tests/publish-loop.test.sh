@@ -39,6 +39,13 @@ case "${1:-}" in
     if [ -f "$STATE/$name" ]; then cat "$STATE/$name"; exit 0; fi
     if [ "${STUB_ALL_PUBLISHED:-0}" = "1" ]; then echo "${spec##*@}"; exit 0; fi
     exit 1 ;;
+  config)
+    # `npm config get registry`: the publish stage records it so a "did not land"
+    # failure names the registry it targeted instead of only saying it is missing.
+    [ "${2:-}" = "get" ] && [ "${3:-}" = "registry" ] && { echo "${STUB_REGISTRY:-https://registry.npmjs.org}"; exit 0; }
+    exit 0 ;;
+  whoami)
+    echo "${STUB_USER:-stub-user}"; exit 0 ;;
   publish)
     dir="$(basename "$PWD")"
     if [ "$dir" = "npm" ]; then name="lam-router"; else name="lam-router-$dir"; fi
@@ -170,7 +177,18 @@ export STUB_SILENT=1
 run_loop
 teardown_work
 ok "read-back catches the silent publish"                   1 "npm reported success but the registry does not serve it"
+ok "the silent publish's own output rides in the annotation" 1 "stub-published linux-x64"
 ok "root package is not reported as published"              1 "::error::lam-router-linux-x64@2.0.0" "stub-published npm"
+
+echo "case 5: annotations carry npm's own words, not just a verdict"
+setup_work
+export STUB_FAIL_DIR=linux-x64
+export STUB_REGISTRY=https://registry.npmjs.org/
+export STUB_USER=ci-bot
+run_loop
+teardown_work
+ok "npm's error text is in the annotation"                  1 "Incorrect or missing password"
+ok "the stage names the registry and identity it targeted"   1 "registry=https://registry.npmjs.org/ user=ci-bot"
 
 echo
 echo "publish-loop: $PASS passed, $FAIL failed"

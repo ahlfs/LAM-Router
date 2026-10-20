@@ -247,6 +247,10 @@ if [[ "${1:-}" == "--publish" ]]; then
   # Every failure other than name screening still aborts, so an expired token or
   # a registry outage can never ship a release that silently lacks a platform.
   REFUSED=()
+  # Registry identity in the annotation trail: a publish that exits 0 without
+  # landing is nearly always the wrong registry or the wrong identity, and
+  # neither is visible in a failure message that only says "not served".
+  note "publish stage: version=$VERSION registry=$(npm config get registry 2>/dev/null || echo '?') user=$(npm whoami 2>/dev/null || echo '?')"
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
     if [ "$(npm view "lam-router-$DIR@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
@@ -261,21 +265,25 @@ if [[ "${1:-}" == "--publish" ]]; then
         REFUSED+=("$entry")
         warn "npm refuses the name lam-router-$DIR (name screening, not an auth error) — the launcher serves that platform from the GitHub Release"
       else
-        fail_note "publishing lam-router-$DIR failed for a reason other than name screening"
+        fail_note "publishing lam-router-$DIR failed for a reason other than name screening. npm output: $(tr '\n' '|' < "$LOG" | tail -c 700)"
         rm -f "$LOG"
         exit 1
       fi
     else
       PUBLISHED=1
     fi
-    rm -f "$LOG"
     if [ "$PUBLISHED" = "1" ]; then
+      # The log outlives the read-back on purpose: when npm exits 0 without
+      # landing, its own output is the only thing that names the reason, and the
+      # annotation must carry it (job logs are not readable anonymously).
       if ! registry_has_version "lam-router-$DIR" "$VERSION"; then
-        fail_note "lam-router-$DIR@$VERSION: npm reported success but the registry does not serve it"
+        fail_note "lam-router-$DIR@$VERSION: npm reported success but the registry does not serve it. npm output: $(tr '\n' '|' < "$LOG" | tail -c 700)"
+        rm -f "$LOG"
         exit 1
       fi
       note "published lam-router-$DIR@$VERSION (read back from the registry)"
     fi
+    rm -f "$LOG"
   done
 
   # Stage marker: the annotation trail must show whether the release reached the
@@ -296,7 +304,7 @@ if [[ "${1:-}" == "--publish" ]]; then
     fi
     rm -f "$LOG"
     if ! registry_has_version lam-router "$VERSION"; then
-      fail_note "root publish exited 0 but the registry does not serve lam-router@$VERSION"
+      fail_note "root publish exited 0 but the registry does not serve lam-router@$VERSION. npm output: $(tr '\n' '|' < "$LOG" | tail -c 700)"
       exit 1
     fi
     note "published lam-router@$VERSION (read back from the registry)"
