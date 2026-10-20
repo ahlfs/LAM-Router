@@ -1,5 +1,22 @@
 # Changelog
 
+## [v2.0.2] — 2026-10-20
+
+### Perbaikan tema terang
+- Token `--muted` pada 18 tema terang diisi abu-abu pekat; di enam tema nilainya
+  identik dengan `--muted-foreground` (warna teks). Setiap `var(--muted)` di
+  stylesheet ternyata dipakai sebagai `background-color` dengan alpha 10-80%,
+  sehingga panel Universal Base URL, Cloudflare Tunnel, serta header tabel dan
+  bar filter di halaman Endpoint & Keys tampil sebagai lempeng kelabu yang
+  terbaca seperti nonaktif.
+- Nilai `--muted` tiap tema terang kini diturunkan dari palet tema itu sendiri
+  (65% `--secondary` + 35% `--muted-foreground`), jadi karakter hue tiap tema
+  tetap terjaga. Tema gelap tidak tersentuh (diverifikasi: nol blok gelap
+  berubah antara HEAD dan hasil akhir).
+- Penjaga regresi baru memastikan `--muted` tema terang selalu berupa permukaan
+  terang dan tidak pernah sama dengan `--muted-foreground`, disertai tes
+  pembalik yang membuktikan penjaga itu benar-benar bisa gagal.
+
 ## [v2.0.0] — 2026-10-20
 
 ### Instalasi & update penuh lewat npm
