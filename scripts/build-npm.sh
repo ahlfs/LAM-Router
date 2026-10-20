@@ -251,6 +251,29 @@ if [[ "${1:-}" == "--publish" ]]; then
   # landing is nearly always the wrong registry or the wrong identity, and
   # neither is visible in a failure message that only says "not served".
   note "publish stage: version=$VERSION registry=$(npm config get registry 2>/dev/null || echo '?') user=$(npm whoami 2>/dev/null || echo '?')"
+
+  # Provenance signing happens in npm's own service, so a 502 from it (seen as
+  # CA_CREATE_SIGNING_CERTIFICATE_ERROR) fails the publish through no fault of
+  # this release. Retry that ONE class a bounded number of times; every other
+  # failure still aborts immediately, because retrying a real error just wastes
+  # a release run.
+  publish_pkg() {   # publish_pkg <dir under npm/> <friendly name> <log file>
+    local rel="$1" name="$2" log="$3" attempt=1
+    local attempts="${PUBLISH_ATTEMPTS:-3}" delay="${PUBLISH_RETRY_DELAY:-15}"
+    while :; do
+      if (cd "$ROOT_DIR/npm/$rel" && npm publish --access public) 2>&1 | tee "$log"; then
+        return 0
+      fi
+      if grep -qE 'CA_CREATE_SIGNING_CERTIFICATE_ERROR|\(502\) Bad Gateway' "$log" && [ "$attempt" -lt "$attempts" ]; then
+        warn "$name: npm's signing service returned 502 (attempt $attempt/$attempts) — retrying in ${delay}s"
+        : > "$log"
+        sleep "$delay"
+        attempt=$((attempt + 1))
+        continue
+      fi
+      return 1
+    done
+  }
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
     if [ "$(npm view "lam-router-$DIR@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
@@ -260,17 +283,15 @@ if [[ "${1:-}" == "--publish" ]]; then
     echo "  → Publishing lam-router-$DIR..."
     LOG="$(mktemp)"
     PUBLISHED=0
-    if ! (cd "$ROOT_DIR/npm/platforms/$DIR" && npm publish --access public) 2>&1 | tee "$LOG"; then
-      if grep -q 'spam detection' "$LOG"; then
-        REFUSED+=("$entry")
-        warn "npm refuses the name lam-router-$DIR (name screening, not an auth error) — the launcher serves that platform from the GitHub Release"
-      else
-        fail_note "publishing lam-router-$DIR failed for a reason other than name screening. npm output: $(tr '\n' '|' < "$LOG" | tail -c 700)"
-        rm -f "$LOG"
-        exit 1
-      fi
-    else
+    if publish_pkg "platforms/$DIR" "lam-router-$DIR" "$LOG"; then
       PUBLISHED=1
+    elif grep -q 'spam detection' "$LOG"; then
+      REFUSED+=("$entry")
+      warn "npm refuses the name lam-router-$DIR (name screening, not an auth error) — the launcher serves that platform from the GitHub Release"
+    else
+      fail_note "publishing lam-router-$DIR failed for a reason other than name screening. npm output: $(tr '\n' '|' < "$LOG" | tail -c 700)"
+      rm -f "$LOG"
+      exit 1
     fi
     if [ "$PUBLISHED" = "1" ]; then
       # The log outlives the read-back on purpose: when npm exits 0 without
@@ -295,7 +316,7 @@ if [[ "${1:-}" == "--publish" ]]; then
   else
     echo "  → Publishing root package lam-router..."
     LOG="$(mktemp)"
-    if (cd "$ROOT_DIR/npm" && npm publish --access public) 2>&1 | tee "$LOG"; then
+    if publish_pkg "" "lam-router" "$LOG"; then
       note "root publish output: $(tr '\n' '|' < "$LOG" | cut -c1-500)"
     else
       fail_note "root publish FAILED: $(tr '\n' '|' < "$LOG" | cut -c1-800)"

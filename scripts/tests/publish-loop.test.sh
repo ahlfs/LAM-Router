@@ -49,6 +49,18 @@ case "${1:-}" in
   publish)
     dir="$(basename "$PWD")"
     if [ "$dir" = "npm" ]; then name="lam-router"; else name="lam-router-$dir"; fi
+    # Provenance signing lives in npm's own service: STUB_FLAKY_DIR makes the
+    # first attempt fail there (502), STUB_FLAKY_ALWAYS keeps failing.
+    if [ -n "${STUB_FLAKY_DIR:-}" ] && [ "$dir" = "$STUB_FLAKY_DIR" ]; then
+      if [ "${STUB_FLAKY_ALWAYS:-0}" = "1" ] || [ ! -f "$STATE/.flaky-$dir" ]; then
+        mkdir -p "$STATE"; : > "$STATE/.flaky-$dir"
+        printf '%s\n' \
+          "npm notice Publishing to https://registry.npmjs.org with tag latest and public access" \
+          "npm error code CA_CREATE_SIGNING_CERTIFICATE_ERROR" \
+          "npm error error creating signing certificate - (502) Bad Gateway" >&2
+        exit 1
+      fi
+    fi
     if [ -n "${STUB_REFUSE_DIR:-}" ] && [[ "$dir" == "$STUB_REFUSE_DIR" ]]; then
       printf '%s\n' \
         "npm error code E403" \
@@ -113,7 +125,9 @@ setup_work() {
 }
 
 teardown_work() {
-  unset STUB_REFUSE_DIR STUB_FAIL_DIR STUB_SILENT STUB_ALL_PUBLISHED STUB_STATE 2>/dev/null || true
+  unset STUB_REFUSE_DIR STUB_FAIL_DIR STUB_SILENT STUB_ALL_PUBLISHED STUB_STATE \
+        STUB_FLAKY_DIR STUB_FLAKY_ALWAYS STUB_REGISTRY STUB_USER \
+        PUBLISH_RETRY_DELAY PUBLISH_ATTEMPTS 2>/dev/null || true
   rm -rf "$WORK"
 }
 
@@ -189,6 +203,27 @@ run_loop
 teardown_work
 ok "npm's error text is in the annotation"                  1 "Incorrect or missing password"
 ok "the stage names the registry and identity it targeted"   1 "registry=https://registry.npmjs.org/ user=ci-bot"
+
+echo "case 6: a transient 502 from npm's signing service is retried, not fatal"
+setup_work
+export STUB_FLAKY_DIR=darwin-arm64
+export PUBLISH_RETRY_DELAY=0
+run_loop
+teardown_work
+ok "the release completes after the transient 502"         0 "stub-published npm"
+ok "the retry is announced"                                0 "npm's signing service returned 502"
+ok "the retried platform is published"                     0 "stub-published darwin-arm64"
+
+echo "case 7: a 502 that never clears still aborts the release"
+setup_work
+export STUB_FLAKY_DIR=darwin-x64
+export STUB_FLAKY_ALWAYS=1
+export PUBLISH_RETRY_DELAY=0
+export PUBLISH_ATTEMPTS=2
+run_loop
+teardown_work
+ok "aborts instead of retrying forever"                    1 "failed for a reason other than name screening"
+ok "the root package is not published"                     1 "Publishing lam-router-darwin-x64" "stub-published npm"
 
 echo
 echo "publish-loop: $PASS passed, $FAIL failed"
