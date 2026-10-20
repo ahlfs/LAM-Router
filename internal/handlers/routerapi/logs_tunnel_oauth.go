@@ -24,12 +24,18 @@ func (h *RouterAPIHandler) HandleTelemetryActive(w http.ResponseWriter, r *http.
 	handlerutil.WriteJSON(w, http.StatusOK, state)
 }
 
-// GET /v1/logs
+// GET /v1/logs?period=today|24h|7d|30d|60d|all
 func (h *RouterAPIHandler) HandleLogsList(w http.ResponseWriter, r *http.Request) {
+	// The recent-requests table sits on the same dashboard as the period
+	// selector, so it honours the same range; without a period it stays
+	// unfiltered and older callers see the full history.
+	_, sinceMs := parseStatsPeriod(statsRequestedPeriod(r), time.Now())
+	timeFilter, timeArgs := statsTimeFilter(sinceMs)
+
 	rows, err := h.db.Query(`
 SELECT id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, reasoning_tokens, estimated_cost, fallback_occurred, COALESCE(fallback_reason, '')
-FROM request_logs ORDER BY created_at DESC LIMIT 100
-`)
+FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
+`, timeArgs...)
 	if err != nil {
 		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 			"object": "list",
@@ -82,12 +88,91 @@ FROM request_logs ORDER BY created_at DESC LIMIT 100
 	})
 }
 
-// GET /v1/logs/stats
+// statsPeriodDefault is returned whenever a caller sends no period, or one we
+// do not recognise. Keeping the default unfiltered means every existing caller
+// (TUI, CLI, older UI bundles) keeps seeing all-time totals.
+const statsPeriodDefault = "all"
+
+// parseStatsPeriod resolves a ?period= value into a period key plus an
+// inclusive lower bound in milliseconds since epoch. Rolling windows are
+// relative to the server clock; "today" starts at local midnight, which is what
+// an operator means by "hari ini".
+func parseStatsPeriod(raw string, now time.Time) (string, int64) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "today":
+		startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		return "today", startOfDay.UnixMilli()
+	case "24h":
+		return "24h", now.Add(-24 * time.Hour).UnixMilli()
+	case "7d":
+		return "7d", now.Add(-7 * 24 * time.Hour).UnixMilli()
+	case "30d":
+		return "30d", now.Add(-30 * 24 * time.Hour).UnixMilli()
+	case "60d":
+		return "60d", now.Add(-60 * 24 * time.Hour).UnixMilli()
+	default:
+		return statsPeriodDefault, 0
+	}
+}
+
+// statsRequestedPeriod reads the period from the request, accepting "range" as
+// an alias so either naming works from the dashboard.
+func statsRequestedPeriod(r *http.Request) string {
+	query := r.URL.Query()
+	if v := query.Get("period"); v != "" {
+		return v
+	}
+	return query.Get("range")
+}
+
+// statsTimeFilter renders the WHERE clause for a lower bound. A non-positive
+// bound yields no clause, keeping the all-time query identical to before.
+func statsTimeFilter(sinceMs int64) (string, []any) {
+	if sinceMs <= 0 {
+		return "", nil
+	}
+	return " WHERE created_at >= ?", []any{sinceMs}
+}
+
+// providerDisplayName turns a provider id recorded in request_logs into the
+// label the dashboard renders next to that provider's icon. The static catalog
+// is used rather than a database lookup because this payload is polled every
+// second; providers that are imported and therefore absent from the catalog
+// fall back to a readable form of their id instead of an empty label.
+func providerDisplayName(id string) string {
+	trimmed := strings.TrimSpace(id)
+	if trimmed == "" {
+		return "Unknown"
+	}
+	for _, def := range KnownCatalogSeeds {
+		if def.Name != "" && strings.EqualFold(def.ID, trimmed) {
+			return def.Name
+		}
+	}
+	parts := strings.FieldsFunc(trimmed, func(c rune) bool { return c == '-' || c == '_' || c == ' ' })
+	worded := make([]string, 0, len(parts))
+	for _, part := range parts {
+		runes := []rune(part)
+		if len(runes) == 0 {
+			continue
+		}
+		worded = append(worded, strings.ToUpper(string(runes[0]))+string(runes[1:]))
+	}
+	if len(worded) == 0 {
+		return trimmed
+	}
+	return strings.Join(worded, " ")
+}
+
+// GET /v1/logs/stats?period=today|24h|7d|30d|60d|all
 func (h *RouterAPIHandler) HandleLogsStats(w http.ResponseWriter, r *http.Request) {
 	var totalRequests, totalTokens, totalInputTokens, totalOutputTokens int
 	var totalCachedTokens, totalCompressionTokens int
 	var totalCost float64
 	var avgLatency float64
+
+	periodKey, sinceMs := parseStatsPeriod(statsRequestedPeriod(r), time.Now())
+	timeFilter, timeArgs := statsTimeFilter(sinceMs)
 
 	_ = h.db.QueryRow(`
 SELECT 
@@ -99,8 +184,8 @@ SELECT
     COALESCE(SUM(compression_tokens), 0),
     COALESCE(SUM(estimated_cost), 0), 
     COALESCE(AVG(latency_ms), 0) 
-FROM request_logs
-`).Scan(
+FROM request_logs`+timeFilter,
+		timeArgs...).Scan(
 		&totalRequests, &totalTokens, &totalInputTokens, &totalOutputTokens,
 		&totalCachedTokens, &totalCompressionTokens, &totalCost, &avgLatency,
 	)
@@ -110,11 +195,11 @@ FROM request_logs
 	// Fetch byModel breakdown
 	rows, err := h.db.Query(`
 SELECT model, COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0)
-FROM request_logs
+FROM request_logs`+timeFilter+`
 GROUP BY model
 ORDER BY COUNT(*) DESC
 LIMIT 20
-`)
+`, timeArgs...)
 	var byModel []map[string]any
 	if err == nil {
 		defer rows.Close()
@@ -140,6 +225,76 @@ LIMIT 20
 		byModel = []map[string]any{}
 	}
 
+	// A model can be served by more than one provider once fallbacks kick in, so
+	// each row keeps the provider that carried most of its tokens. The per-model
+	// list above is capped at 20 rows, which is why provider totals are
+	// aggregated by their own query instead of from that list.
+	dominantProvider := make(map[string]string)
+	if providerRows, err := h.db.Query(`
+SELECT model, provider_id, COALESCE(SUM(total_tokens), 0) AS tok
+FROM request_logs`+timeFilter+`
+GROUP BY model, provider_id
+ORDER BY tok DESC
+`, timeArgs...); err == nil {
+		defer providerRows.Close()
+		for providerRows.Next() {
+			var model, providerID string
+			var tok int
+			if err := providerRows.Scan(&model, &providerID, &tok); err == nil {
+				if _, seen := dominantProvider[model]; !seen {
+					dominantProvider[model] = providerID
+				}
+			}
+		}
+	}
+	for _, row := range byModel {
+		if model, ok := row["model"].(string); ok {
+			providerID := dominantProvider[model]
+			row["providerId"] = providerID
+			row["providerName"] = providerDisplayName(providerID)
+		}
+	}
+
+	// Per-provider breakdown behind the provider distribution card. Shares are
+	// measured against the same window total as the cards, so they add up to
+	// 100% for the selected period.
+	byProvider := []map[string]any{}
+	if providerRows, err := h.db.Query(`
+SELECT provider_id, COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0), COUNT(DISTINCT model), COALESCE(AVG(latency_ms), 0)
+FROM request_logs`+timeFilter+`
+GROUP BY provider_id
+ORDER BY SUM(total_tokens) DESC, COUNT(*) DESC
+`, timeArgs...); err == nil {
+		defer providerRows.Close()
+		for providerRows.Next() {
+			var providerID string
+			var reqCount, tokens, inTokens, outTokens, cachedTokens, compressionTokens, modelCount int
+			var estCost, avgLatency float64
+			if err := providerRows.Scan(&providerID, &reqCount, &tokens, &inTokens, &outTokens, &cachedTokens, &compressionTokens, &estCost, &modelCount, &avgLatency); err != nil {
+				continue
+			}
+			share := 0.0
+			if totalTokens > 0 {
+				share = float64(tokens) / float64(totalTokens) * 100
+			}
+			byProvider = append(byProvider, map[string]any{
+				"providerId":             providerID,
+				"name":                   providerDisplayName(providerID),
+				"totalTokens":            tokens,
+				"totalRequests":          reqCount,
+				"totalInputTokens":       inTokens,
+				"totalOutputTokens":      outTokens,
+				"totalCachedTokens":      cachedTokens,
+				"totalCompressionTokens": compressionTokens,
+				"totalSavedTokens":       cachedTokens + compressionTokens,
+				"estCost":                estCost,
+				"modelCount":             modelCount,
+				"avgLatency":             avgLatency,
+				"share":                  share,
+			})
+		}
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"totalRequests":          totalRequests,
 		"totalTokens":            totalTokens,
@@ -153,7 +308,10 @@ LIMIT 20
 		"estimated":              true,
 		"avgLatency":             avgLatency,
 		"activeStreams":          0,
+		"period":                 periodKey,
+		"periodStartMs":          sinceMs,
 		"byModel":                byModel,
+		"byProvider":             byProvider,
 	})
 }
 
