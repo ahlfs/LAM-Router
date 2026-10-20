@@ -81,6 +81,7 @@ var ProviderAliasMap = map[string]string{
 	"hunyuan":        "tencent",
 	"kgw":            "kilo-gateway",
 	"qianfan":        "baidu",
+	"rv":             "river",
 	"samba":          "sambanova",
 	"tr":             "trae",
 	"ws":             "windsurf",

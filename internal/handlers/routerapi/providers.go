@@ -923,6 +923,24 @@ var KnownCatalogSeeds = []ProviderDefinition{
 			{"id": "blackbox/gpt-4o", "object": "model"},
 		},
 	},
+	// 42. River AI
+	{
+		ID:                "river",
+		Name:              "River AI",
+		Category:          "api_key",
+		Protocol:          "openai",
+		DefaultBaseURL:    strPtr("https://api.river.ai/v1"),
+		WebURL:            strPtr("https://console.river.ai"),
+		RequiresAPIKey:    true,
+		SupportsCustomURL: true,
+		Status:            map[string]any{"state": "no_connections", "connectedCount": 0},
+		Models: []map[string]any{
+			{"id": "river/deepseek-ai/DeepSeek-V4.1-Flash", "object": "model"},
+			{"id": "river/deepseek-ai/DeepSeek-V4.1-Flash-1017", "object": "model"},
+			{"id": "river/nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-NVFP4", "object": "model"},
+			{"id": "river/zai-org/GLM-5.3-Flash", "object": "model"},
+		},
+	},
 }
 
 func strPtr(s string) *string {
@@ -1220,7 +1238,14 @@ func (h *RouterAPIHandler) HandleProviderAdd(w http.ResponseWriter, r *http.Requ
 		psdStr = &s
 	}
 
-	_, err := h.db.Exec(`
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to begin transaction: %v", err))
+		return
+	}
+	defer tx.Rollback()
+
+	_, err = tx.Exec(`
 INSERT INTO providers (
     id, provider_id, name, category, protocol, base_url, api_key, access_token, refresh_token, account_id, organization_id, custom_headers, provider_specific_data, enabled, created_at
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
@@ -1251,8 +1276,17 @@ ON CONFLICT(id) DO UPDATE SET
 			connMap["baseUrl"] = *body.BaseURL
 		}
 		dataJSON, _ := json.Marshal(connMap)
-		_, _ = h.db.Exec(`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, 'api_key', ?, 1, ?, datetime('now'), datetime('now'))
+		_, err = tx.Exec(`INSERT INTO providerConnections (id, provider, authType, name, isActive, data, createdAt, updatedAt) VALUES (?, ?, 'api_key', ?, 1, ?, datetime('now'), datetime('now'))
 ON CONFLICT(id) DO UPDATE SET data = excluded.data, updatedAt = datetime('now')`, id, providerID, body.Name, string(dataJSON))
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to sync provider connection: %v", err))
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to commit provider transaction: %v", err))
+		return
 	}
 
 	// Trigger async dynamic model scanning for supported API Key providers
@@ -1280,18 +1314,30 @@ func (h *RouterAPIHandler) HandleProviderDelete(w http.ResponseWriter, r *http.R
 
 	lowID := strings.ToLower(id)
 
+	tx, err := h.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to begin transaction: %v", err))
+		return
+	}
+	defer tx.Rollback()
+
 	// 1. Delete from providers table (matches either unique id or provider_id)
-	_, err := h.db.Exec(`DELETE FROM providers WHERE id = ? OR LOWER(provider_id) = ?`, id, lowID)
+	_, err = tx.Exec(`DELETE FROM providers WHERE id = ? OR LOWER(provider_id) = ?`, id, lowID)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to delete provider: %v", err))
 		return
 	}
 
 	// 2. Delete from providerConnections (matches id, provider name, or prefix like openrouter-12345)
-	_, _ = h.db.Exec(`DELETE FROM providerConnections WHERE id = ? OR LOWER(provider) = ? OR LOWER(id) LIKE ?`, id, lowID, lowID+"-%")
+	_, _ = tx.Exec(`DELETE FROM providerConnections WHERE id = ? OR LOWER(provider) = ? OR LOWER(id) LIKE ?`, id, lowID, lowID+"-%")
 
 	// 3. Purge cached and synced models for this provider so they do not linger in /v1/models
-	_, _ = h.db.Exec(`DELETE FROM provider_models WHERE LOWER(provider_id) = ?`, lowID)
+	_, _ = tx.Exec(`DELETE FROM provider_models WHERE LOWER(provider_id) = ?`, lowID)
+
+	if err := tx.Commit(); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, fmt.Sprintf("Failed to commit delete transaction: %v", err))
+		return
+	}
 	_, _ = h.db.Exec(`DELETE FROM custom_models WHERE LOWER(provider_id) = ?`, lowID)
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
@@ -1321,6 +1367,10 @@ func (h *RouterAPIHandler) HandleProviderVerify(w http.ResponseWriter, r *http.R
 	baseURL := ""
 	if body.BaseURL != nil {
 		baseURL = strings.TrimSpace(*body.BaseURL)
+		if baseURL != "" && !strings.HasPrefix(baseURL, "http://") && !strings.HasPrefix(baseURL, "https://") {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid baseUrl scheme; must start with http:// or https://")
+			return
+		}
 	}
 
 	// 1. If provider is Antigravity / OAuth / Local free provider, pass without live probe

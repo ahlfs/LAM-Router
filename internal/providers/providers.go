@@ -333,6 +333,11 @@ var KnownProviders = map[string]ProviderConfig{
 		AuthScheme: "bearer",
 	},
 
+	"river": {
+		BaseURL:    "https://api.river.ai/v1/chat/completions",
+		AuthHeader: "Authorization",
+		AuthScheme: "bearer",
+	},
 	"nebius": {
 		BaseURL:    "https://api.studio.nebius.ai/v1/chat/completions",
 		AuthHeader: "Authorization",
