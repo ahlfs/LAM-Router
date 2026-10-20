@@ -32,10 +32,20 @@ fail_note() { printf '::error::%s\n' "$*" >&2; }
 # instant, instead of trusting npm's exit status alone.
 registry_has_version() {
   local pkg="$1" want="$2" got i
-  local delay="${REGISTRY_POLL_DELAY:-3}"
-  for i in 1 2 3 4 5; do
+  local delay="${REGISTRY_POLL_DELAY:-15}"
+  local attempts="${REGISTRY_ATTEMPTS:-20}"
+  # npm answers a publish with "Your package is being processed and may take a
+  # few minutes to become available", and npmjs serves packuments with a
+  # cache-control max-age of 300s, so a read-back budgeted in seconds fails
+  # releases that were in fact published. Budget minutes (20 x 15s by default).
+  for i in $(seq 1 "$attempts"); do
     got="$(npm view "$pkg@$want" version 2>/dev/null || true)"
-    [ "$got" = "$want" ] && return 0
+    if [ "$got" = "$want" ]; then
+      if [ "$i" -gt 1 ]; then
+        note "$pkg@$want became visible after $((i - 1)) poll(s)"
+      fi
+      return 0
+    fi
     sleep "$delay"
   done
   return 1

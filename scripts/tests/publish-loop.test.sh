@@ -36,7 +36,16 @@ case "${1:-}" in
   view)
     spec="${2:-}"
     name="${spec%%@*}"
-    if [ -f "$STATE/$name" ]; then cat "$STATE/$name"; exit 0; fi
+    if [ -f "$STATE/$name" ]; then
+      # STUB_LAG_VIEWS simulates registry propagation: the version IS published
+      # but stays invisible for the first N read-backs (npm's "may take a few
+      # minutes to become available").
+      if [ "${STUB_LAG_VIEWS:-0}" != "0" ]; then
+        n=$(cat "$STATE/.lag-$name" 2>/dev/null || echo 0)
+        if [ "$n" -lt "$STUB_LAG_VIEWS" ]; then echo $((n + 1)) > "$STATE/.lag-$name"; exit 1; fi
+      fi
+      cat "$STATE/$name"; exit 0
+    fi
     if [ "${STUB_ALL_PUBLISHED:-0}" = "1" ]; then echo "${spec##*@}"; exit 0; fi
     exit 1 ;;
   config)
@@ -96,8 +105,10 @@ make_harness() {
 
   {
     echo 'set -uo pipefail'
-    # REGISTRY_POLL_DELAY=0 keeps the failing read-back instant.
+    # REGISTRY_POLL_DELAY=0 keeps a failing read-back instant; the attempt count
+    # stays low so the cases finish quickly.
     echo 'REGISTRY_POLL_DELAY=0'
+    echo 'REGISTRY_ATTEMPTS=3'
     sed -n '/^# ::notice::/,/^}/p' "$REPO/scripts/build-npm.sh"
     cat <<'PRELUDE'
 ROOT_DIR="$WORK/root"
@@ -224,6 +235,14 @@ run_loop
 teardown_work
 ok "aborts instead of retrying forever"                    1 "failed for a reason other than name screening"
 ok "the root package is not published"                     1 "Publishing lam-router-darwin-x64" "stub-published npm"
+
+echo "case 8: a published package that is still propagating is waited for"
+setup_work
+export STUB_LAG_VIEWS=2
+run_loop
+teardown_work
+ok "the release completes despite propagation lag"         0 "stub-published npm"
+ok "the wait is reported with the poll count"              0 "became visible after 2 poll(s)"
 
 echo
 echo "publish-loop: $PASS passed, $FAIL failed"
