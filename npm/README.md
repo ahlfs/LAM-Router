@@ -66,6 +66,19 @@ pm2 restart lamrouter      # or: systemctl restart lam-router
 prints the exact command to run. Background versions are logged at startup; set
 `UPDATE_CHECK=false` to silence that notice.
 
+### Windows: no platform package, verified download instead
+
+npm's name screening refuses the `lam-router-win32-x64` package name
+(`403 Package name triggered spam detection`), so there is no platform package
+to install on Windows. The launcher closes that gap: when no platform package is
+present it downloads `lam-router-windows-amd64.exe` from the matching GitHub
+Release, checks its sha256 against the release's `checksums.txt`, caches it
+inside the package (`node_modules/lam-router/cache/<version>/`) and runs it. The
+cache keeps `lam-router version` reporting the `npm` channel and is reused on
+later runs, so the download happens once per version. Nothing is downloaded when
+the platform package is available; set `LAM_ROUTER_NO_DOWNLOAD=1` to keep the
+launcher offline-only.
+
 ---
 
 ## 📄 License

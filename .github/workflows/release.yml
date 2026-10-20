@@ -120,6 +120,11 @@ jobs:
           chmod 600 "$HOME/.npmrc"
           npm whoami
 
+      # Before spending a publish: the loop must keep going past a package name
+      # npm's screening refuses, while still aborting on real errors.
+      - name: Publish-loop regression test
+        run: bash scripts/tests/publish-loop.test.sh
+
       - name: Publish all NPM packages
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

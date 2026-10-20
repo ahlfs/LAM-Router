@@ -4,8 +4,13 @@
 
 ### Instalasi & update penuh lewat npm
 - Instalasi resmi lewat registry npm (`npm i -g lam-router`), launcher Pattern A
-  (`optionalDependencies`) untuk 5 platform: linux-x64, linux-arm64,
-  darwin-arm64, darwin-x64, win32-x64.
+  (`optionalDependencies`) untuk linux-x64, linux-arm64, darwin-arm64, darwin-x64.
+- win32-x64 tidak punya paket platform: npm menolak nama barunya
+  (`403 Package name triggered spam detection`, kebijakan sisi npm, bukan soal
+  token). Rilis tidak digagalkan oleh penolakan itu — launcher menutup celahnya
+  dengan mengunduh `lam-router-windows-amd64.exe` dari GitHub Release yang sama,
+  memverifikasi sha256 terhadap `checksums.txt`, lalu menyimpannya di
+  `node_modules/lam-router/cache/<versi>/` sehingga kanal tetap dilaporkan `npm`.
 - `lam-router version` melaporkan versi terpasang, kanal pemasangan
   (`npm` atau `manual`) dan rilis terbaru di registry; `lam-router update`
   mendelegasikan ke npm dan tidak pernah menulis ke dalam node_modules.
@@ -30,8 +35,14 @@
 - `scripts/build-npm.sh` menolak build/publish kecuali HEAD berada tepat di tag
   rilis dan working tree bersih; `ALLOW_UNTAGGED=1` hanya untuk dry run lokal yang
   tetap dilarang publish.
+- Satu nama platform yang ditolak npm tidak lagi menggagalkan seluruh rilis:
+  penolakan name-screening dilewati dengan peringatan, sedangkan kegagalan lain
+  (token, registry) tetap menghentikan publish sebelum root terbit.
 - Mode `--verify` mengunduh artefak yang benar-benar dilayani registry dan gagal
-  bila binernya tidak lagi cocok dengan kode — guard untuk regresi 1.8.5.
+  bila binernya tidak lagi cocok dengan kode — guard untuk regresi 1.8.5. Ia juga
+  membedakan "nama ditolak npm" (celah yang diterima, ditutup launcher) dari
+  "artefak hilang", dan menolak rilis bila launcher tidak membawa jalur unduhan
+  terverifikasi untuk platform yang paketnya tidak bisa ada.
 - Workflow rilis menerbitkan `checksums.txt`, memakai npm provenance, dan punya
   job verifikasi pasca-publish.
 

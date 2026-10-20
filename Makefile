@@ -1,5 +1,8 @@
 BINARY_NAME := lam-router
-VERSION ?= $(shell git describe --tags --always 2>/dev/null || echo "1.8.4")
+# The leading "v" of a release tag is stripped so the GitHub Release assets and
+# both npm package families report the same version string; the launcher and the
+# updater compare these values.
+VERSION ?= $(shell v=$$(git describe --tags --always 2>/dev/null || echo "1.8.4"); echo "$${v#v}")
 PORT ?= 9898
 DATA_DIR ?= $(HOME)/.lam-router
 RTK ?=

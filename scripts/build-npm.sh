@@ -44,7 +44,14 @@ if [[ "${1:-}" == "--verify" && -n "${2:-}" ]]; then
   VERIFY_TARGET="${2#v}"
 fi
 
-if [ -z "$TAG" ] && [ -z "$VERIFY_TARGET" ]; then
+if [ -n "$VERIFY_TARGET" ]; then
+  # Read-only: it reads the registry for an already-published release, so an
+  # untagged HEAD or a dirty tree must not block it. Checked first, because a
+  # tag sitting on HEAD with uncommitted edits (the normal state right before
+  # the next release) otherwise refuses the check that is supposed to help
+  # diagnose exactly that situation.
+  echo "🔍 --verify v$VERIFY_TARGET: release provenance skipped (read-only registry check)"
+elif [ -z "$TAG" ]; then
   if [ "$ALLOW_UNTAGGED" != "1" ]; then
     echo "❌ Refusing to build: HEAD is not on an exact release tag (npm/package.json says $PKG_VERSION)." >&2
     echo "   Tag the release:   git tag -a v$PKG_VERSION -m 'LAM-Router $PKG_VERSION'" >&2
@@ -58,7 +65,7 @@ if [ -z "$TAG" ] && [ -z "$VERIFY_TARGET" ]; then
     echo "❌ --publish requires a tagged, committed release. Re-run without ALLOW_UNTAGGED." >&2
     exit 3
   fi
-elif [ -n "$TAG" ]; then
+else
   if [ "${TAG#v}" != "$PKG_VERSION" ]; then
     echo "❌ Refusing to build: tag $TAG does not match npm/package.json version $PKG_VERSION." >&2
     exit 3
@@ -74,8 +81,6 @@ elif [ -n "$TAG" ]; then
   LOOSE="$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal | grep '^??' || true)"
   [ -n "$LOOSE" ] && echo "ℹ️  Untracked files present (ignored for provenance): $(echo "$LOOSE" | wc -l) entry(s)"
   echo "🔒 Provenance OK: $TAG @ $(git -C "$ROOT_DIR" rev-parse --short HEAD), tree clean"
-else
-  echo "🔍 --verify v$VERIFY_TARGET: release provenance skipped (read-only registry check)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -183,8 +188,12 @@ if [[ "${1:-}" == "--publish" ]]; then
   fi
   echo "🔑 npm auth OK as $(npm whoami)"
 
-  # A brand-new unscoped package needs an interactive OTP exactly once. Warn
-  # before the loop so the failure is not a mystery EOTP mid-release.
+  # A package name that has never been published can fail in two ways with the
+  # same symptom, and the fixes are not interchangeable: a brand-new unscoped
+  # name may need an interactive OTP once, while a name npm's screening dislikes
+  # is refused outright (403 "Package name triggered spam detection") and no
+  # amount of retrying or correct auth will publish it. Warn up front so neither
+  # failure is a mystery mid-release.
   MISSING=()
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
@@ -193,13 +202,14 @@ if [[ "${1:-}" == "--publish" ]]; then
     fi
   done
   if [ "${#MISSING[@]}" -gt 0 ]; then
-    echo "⚠️  Not on the registry yet (first publish of a new unscoped package needs an"
-    echo "    interactive \`--otp=<code>\`): ${MISSING[*]}"
-    echo "    Seed it once from a tagged, clean tree; this script then skips it and"
-    echo "    continues with the remaining packages:"
+    echo "⚠️  Not on the registry yet: ${MISSING[*]}"
+    echo "    Either it was never published (a new unscoped name needs a one-time"
+    echo "    interactive \`--otp=<code>\`), or npm's name screening refuses it:"
     for DIR in "${MISSING[@]}"; do
       echo "      (cd npm/platforms/$DIR && npm publish --access public --otp=<6-digit-code>)"
     done
+    echo "    A refusal is an npm-side policy decision, not an auth problem; the release"
+    echo "    continues without that package and the launcher downloads its binary instead."
   fi
 
   # Platform packages first, root meta-package last: the root declares them as
@@ -207,6 +217,15 @@ if [[ "${1:-}" == "--publish" ]]; then
   # A version that is already on the registry is skipped: npm refuses to
   # overwrite one anyway, and a re-run after a partial failure (or after an
   # interactive --otp seed) must be able to finish the release.
+  #
+  # A platform package REFUSED by npm's name screening must not fail the whole
+  # release: every other platform and the root package are still good, and the
+  # launcher downloads the refused platform's binary from the GitHub Release
+  # instead. The name stays in optionalDependencies, so if npm ever accepts it
+  # those installs switch back to the package with no release of their own.
+  # Every failure other than name screening still aborts, so an expired token or
+  # a registry outage can never ship a release that silently lacks a platform.
+  REFUSED=()
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
     if [ "$(npm view "lam-router-$DIR@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
@@ -214,7 +233,18 @@ if [[ "${1:-}" == "--publish" ]]; then
       continue
     fi
     echo "  → Publishing lam-router-$DIR..."
-    (cd "$ROOT_DIR/npm/platforms/$DIR" && npm publish --access public)
+    LOG="$(mktemp)"
+    if ! (cd "$ROOT_DIR/npm/platforms/$DIR" && npm publish --access public) 2>&1 | tee "$LOG"; then
+      if grep -q 'spam detection' "$LOG"; then
+        REFUSED+=("$entry")
+        echo "  ⚠️  npm refuses the name lam-router-$DIR (name screening, not an auth error) — continuing." >&2
+      else
+        echo "❌ Publishing lam-router-$DIR failed for a reason other than name screening." >&2
+        rm -f "$LOG"
+        exit 1
+      fi
+    fi
+    rm -f "$LOG"
   done
 
   if [ "$(npm view "lam-router@$VERSION" version 2>/dev/null || true)" = "$VERSION" ]; then
@@ -224,6 +254,24 @@ if [[ "${1:-}" == "--publish" ]]; then
     (cd "$ROOT_DIR/npm" && npm publish --access public)
   fi
   echo "🎉 Published LAM-Router v$VERSION to NPM."
+
+  if [ "${#REFUSED[@]}" -gt 0 ]; then
+    echo ""
+    echo "⚠️  npm refused these package names; their binaries are served by the launcher"
+    echo "    (bin/cli.js), which downloads and sha256-verifies the GitHub Release asset:"
+    for entry in "${REFUSED[@]}"; do
+      IFS=":" read -r GOOS GOARCH DIR BIN_NAME <<< "$entry"
+      ASSET="lam-router-${GOOS}-${GOARCH}"
+      if [[ "$BIN_NAME" == *.exe ]]; then
+        ASSET="$ASSET.exe"
+      fi
+      echo "      lam-router-$DIR  →  https://github.com/ahlfs/LAM-Router/releases/download/v$VERSION/$ASSET"
+    done
+    echo "    Installs on those platforms still work; the npm PACKAGE channel for them"
+    echo "    needs npm to lift the block — https://npmjs.com/support, quoting the"
+    echo "    403 'Package name triggered spam detection' message."
+  fi
+
   echo "   Verify the channel with: ./scripts/build-npm.sh --verify"
   exit 0
 fi
@@ -234,14 +282,26 @@ if [[ "${1:-}" == "--verify" ]]; then
   echo "🔍 Verifying published npm artifacts for v$VERSION..."
   FAIL=0
 
+  # npm's name screening can refuse a brand-new unscoped package name (403
+  # "Package name triggered spam detection"), and that package then cannot exist
+  # on the registry at all. Its absence is an accepted gap rather than a
+  # failure, because the launcher fetches the same binary from the GitHub
+  # Release — but the version must still match whenever it IS present, so a
+  # stale copy cannot slip past verification.
+  NAME_REFUSABLE=("win32-x64")
+  PLATFORMS_MISSING=()
   for entry in "${PLATFORMS[@]}"; do
     IFS=":" read -r _ _ DIR _ <<< "$entry"
     GOT="$(npm view "lam-router-$DIR@$VERSION" version 2>/dev/null || true)"
-    if [ "$GOT" != "$VERSION" ]; then
+    if [ "$GOT" = "$VERSION" ]; then
+      echo "  ✅ lam-router-$DIR@$VERSION present"
+    elif [[ " ${NAME_REFUSABLE[*]} " == *" $DIR "* ]]; then
+      PLATFORMS_MISSING+=("$DIR")
+      echo "  ⚠️  lam-router-$DIR@$VERSION absent — npm refuses this package name; the launcher"
+      echo "      downloads the same binary from the GitHub Release and verifies its sha256"
+    else
       echo "  ❌ lam-router-$DIR@$VERSION missing on the registry (got '${GOT:-nothing}')" >&2
       FAIL=1
-    else
-      echo "  ✅ lam-router-$DIR@$VERSION present"
     fi
   done
 
@@ -275,6 +335,32 @@ if [[ "${1:-}" == "--verify" ]]; then
     echo "  ❌ could not fetch/expand lam-router-linux-x64@$VERSION from the registry" >&2
     FAIL=1
   fi
+
+  # Worst case is "npm refuses a platform name AND the shipped launcher has no
+  # download fallback": that platform installs a CLI that cannot run at all.
+  # Ship both and fail the release if they ever drift apart.
+  ROOT_TMP="$(mktemp -d)"
+  if (cd "$ROOT_TMP" && npm pack "lam-router@$VERSION" >/dev/null 2>&1 && tar xzf ./*.tgz); then
+    LAUNCHER="$ROOT_TMP/package/bin/cli.js"
+    if [ -f "$LAUNCHER" ] && grep -q 'checksums.txt' "$LAUNCHER" && grep -q 'releases/download' "$LAUNCHER"; then
+      echo "  ✅ root launcher carries the checksum-verified GitHub Release fallback"
+    else
+      echo "  ❌ root launcher has no download fallback — a name-refused platform would break" >&2
+      FAIL=1
+    fi
+    for DIR in "${PLATFORMS_MISSING[@]}"; do
+      if grep -q "$DIR" "$LAUNCHER"; then
+        echo "  ✅ launcher knows $DIR, so its download fallback can trigger there"
+      else
+        echo "  ❌ launcher does not know platform $DIR — its binary would be unreachable" >&2
+        FAIL=1
+      fi
+    done
+  else
+    echo "  ❌ could not fetch/expand lam-router@$VERSION from the registry" >&2
+    FAIL=1
+  fi
+  rm -rf "$ROOT_TMP"
 
   if [ "$FAIL" = "0" ]; then
     echo "🎉 npm channel verified: v$VERSION is installable and current."

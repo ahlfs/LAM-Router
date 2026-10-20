@@ -24,5 +24,10 @@ jobs:
       - name: Test
         run: go test ./... -v
 
+      - name: Publish-loop regression test
+        # Guards the release loop's failure semantics (one npm-refused package
+        # name must not block the whole release) without needing a token.
+        run: bash scripts/tests/publish-loop.test.sh
+
       - name: Build
         run: go build -ldflags="-s -w" -o /tmp/lamrouter ./cmd/lamrouter/
