@@ -330,6 +330,18 @@ if [[ "${1:-}" == "--verify" ]]; then
   echo "🔍 Verifying published npm artifacts for v$VERSION..."
   FAIL=0
 
+  # In CI this runs seconds after the publish job, and registry propagation is
+  # not instant: an artifact that just landed can still read as missing, which
+  # turns a good release into a false failure. Wait for the root package before
+  # judging anything that depends on it; on a long-published version the first
+  # probe succeeds, so this costs nothing.
+  if [ "$(npm view "lam-router@$VERSION" version 2>/dev/null || true)" != "$VERSION" ]; then
+    echo "  ⏳ lam-router@$VERSION not visible yet — waiting for registry propagation..."
+    if ! REGISTRY_POLL_DELAY=6 registry_has_version lam-router "$VERSION"; then
+      echo "  ⚠️  still not visible after polling; the checks below will report it" >&2
+    fi
+  fi
+
   # npm's name screening can refuse a brand-new unscoped package name (403
   # "Package name triggered spam detection"), and that package then cannot exist
   # on the registry at all. Its absence is an accepted gap rather than a
