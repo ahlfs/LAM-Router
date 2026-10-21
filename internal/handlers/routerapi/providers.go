@@ -987,6 +987,29 @@ func (h *RouterAPIHandler) getAllProviders() ([]*ProviderConfig, error) {
 	return result, nil
 }
 
+// sanitizeConnections strips credential material before pool members are attached to a
+// catalog entry. The provider grid renders only identity, readiness and priority, while the
+// catalog response lists every provider at once, so tokens must never ride along.
+func sanitizeConnections(conns []*ProviderConfig) []*ProviderConfig {
+	if len(conns) == 0 {
+		return nil
+	}
+	out := make([]*ProviderConfig, 0, len(conns))
+	for _, c := range conns {
+		if c == nil {
+			continue
+		}
+		member := *c
+		member.APIKey = nil
+		member.AccessToken = nil
+		member.RefreshToken = nil
+		member.CustomHeaders = nil
+		member.ProviderSpecificData = nil
+		out = append(out, &member)
+	}
+	return out
+}
+
 // Build catalog with active connections
 func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 	savedConns, _ := h.getAllProviders()
@@ -1021,6 +1044,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 				"connectedCount": 0,
 			}
 		}
+		cat.Connections = sanitizeConnections(conns)
 		catalog = append(catalog, cat)
 	}
 
@@ -1049,6 +1073,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 				},
 				Models: []map[string]any{},
 			}
+			customDef.Connections = sanitizeConnections(conns)
 			catalog = append(catalog, customDef)
 		}
 	}
