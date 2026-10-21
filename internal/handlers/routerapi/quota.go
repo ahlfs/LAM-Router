@@ -3,6 +3,7 @@ package routerapi
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,12 +38,16 @@ type LiveModelQuotaItem struct {
 }
 
 type ProviderUsageMetric struct {
-	Model            string  `json:"model"`
-	TotalRequests    int     `json:"totalRequests"`
-	TotalTokens      int64   `json:"totalTokens"`
-	PromptTokens     int64   `json:"promptTokens"`
-	CompletionTokens int64   `json:"completionTokens"`
-	LastUsedAt       *string `json:"lastUsedAt"`
+	Model            string `json:"model"`
+	TotalRequests    int    `json:"totalRequests"`
+	TotalTokens      int64  `json:"totalTokens"`
+	PromptTokens     int64  `json:"promptTokens"`
+	CompletionTokens int64  `json:"completionTokens"`
+	// LastUsedAt adalah epoch milidetik, angka seperti created_at di endpoint
+	// lain. Panel kuota memformatnya dengan `new Date(...)`, dan itu hanya
+	// berhasil untuk angka - sebagai string ia gagal diurai lalu ditampilkan
+	// mentah sebagai deretan digit.
+	LastUsedAt *int64 `json:"lastUsedAt"`
 }
 
 type CloudCodeQuotaBucket struct {
@@ -468,15 +473,35 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	return quotas, nil
 }
 
+// getProviderUsageMetrics menghitung pemakaian per model untuk satu provider.
+//
+// request_logs hanya punya kolom provider_id, dan isinya nama keluarga provider
+// ("antigravity"), sedangkan id di tabel providers membawa akhiran
+// ("antigravity-1791105810882"). Pencocokannya karena itu: sama persis tanpa
+// peduli huruf besar/kecil, atau salah satu sisi adalah sisi lain ditambah
+// akhiran "-...". Sebelumnya query ini menunjuk kolom "provider" yang tidak ada
+// di skema, sehingga selalu gagal dan panel metrik pemakaian tampil kosong
+// tanpa error yang terlihat.
 func (h *RouterAPIHandler) getProviderUsageMetrics(providerID string) []ProviderUsageMetric {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return []ProviderUsageMetric{}
+	}
+
 	rows, err := h.db.Query(`
 		SELECT model, COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), MAX(created_at)
 		FROM request_logs
-		WHERE LOWER(provider) = LOWER(?) OR LOWER(provider) LIKE LOWER(?)
+		WHERE (
+		        LOWER(provider_id) = LOWER(?)
+		     OR LOWER(provider_id) LIKE LOWER(?) || '-%'
+		     OR LOWER(?) LIKE LOWER(provider_id) || '-%'
+		     )
+		  AND `+usageRowCond+`
 		GROUP BY model
 		ORDER BY MAX(created_at) DESC
-	`, providerID, "%"+providerID+"%")
+	`, providerID, providerID, providerID)
 	if err != nil {
+		log.Warn("quota", "getProviderUsageMetrics query failed", "provider", providerID, "error", err)
 		return []ProviderUsageMetric{}
 	}
 	defer rows.Close()
@@ -484,11 +509,19 @@ func (h *RouterAPIHandler) getProviderUsageMetrics(providerID string) []Provider
 	var metrics []ProviderUsageMetric
 	for rows.Next() {
 		var m ProviderUsageMetric
-		var lastUsedAt *string
-		if err := rows.Scan(&m.Model, &m.TotalRequests, &m.TotalTokens, &m.PromptTokens, &m.CompletionTokens, &lastUsedAt); err == nil {
-			m.LastUsedAt = lastUsedAt
-			metrics = append(metrics, m)
+		var lastUsedAt sql.NullInt64
+		if err := rows.Scan(&m.Model, &m.TotalRequests, &m.TotalTokens, &m.PromptTokens, &m.CompletionTokens, &lastUsedAt); err != nil {
+			log.Warn("quota", "getProviderUsageMetrics scan failed", "provider", providerID, "error", err)
+			continue
 		}
+		if lastUsedAt.Valid {
+			last := lastUsedAt.Int64
+			m.LastUsedAt = &last
+		}
+		metrics = append(metrics, m)
+	}
+	if err := rows.Err(); err != nil {
+		log.Warn("quota", "getProviderUsageMetrics rows failed", "provider", providerID, "error", err)
 	}
 	if metrics == nil {
 		return []ProviderUsageMetric{}
