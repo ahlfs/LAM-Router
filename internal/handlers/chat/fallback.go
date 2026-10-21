@@ -1,9 +1,9 @@
 package chat
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
-	"context"
 	"fmt"
 	"lamrouter/internal/log"
 	"net/http"
@@ -12,12 +12,10 @@ import (
 	"time"
 
 	"lamrouter/internal/cache"
-	"lamrouter/internal/middleware"
-	"lamrouter/internal/models"
 	"lamrouter/internal/providers"
 	"lamrouter/internal/proxy/executor"
-	"lamrouter/internal/tracing"
 	"lamrouter/internal/tokensaver"
+	"lamrouter/internal/tracing"
 	"lamrouter/internal/translator"
 	"lamrouter/internal/usagetracker"
 )
@@ -272,13 +270,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 		if usage == nil {
 			usage = &translator.OpenAIUsage{}
 		}
-		clientKeyStr := ""
-		if keyObj := middleware.GetAuthenticatedApiKey(&http.Request{}); keyObj != nil {
-			clientKeyStr = keyObj.Key
-		}
-		if clientKeyObj, ok := ctx.Value(middleware.ApiKeyContextKey).(*models.APIKey); ok && clientKeyObj != nil {
-			clientKeyStr = clientKeyObj.Key
-		}
+		clientKeyStr := extractClientKeyFromContext(ctx)
 
 		logInfo := &UsageLogInfo{
 			Provider:          provider,
@@ -296,7 +288,7 @@ func (h *ChatHandler) tryForwardWithConnection(
 		if cacheInstance.IsEnabled() && metrics.ResponseBuf.Len() > 0 {
 			if cacheKey, err := cacheInstance.GenerateKey(model, body); err == nil && cacheKey != "" {
 				respBytes := metrics.ResponseBuf.Bytes()
-				cacheInstance.Set(cacheKey, model, respBytes, "application/json", isStream, [][]byte{respBytes}, (usage.PromptTokens+usage.CompletionTokens))
+				cacheInstance.Set(cacheKey, model, respBytes, "application/json", isStream, [][]byte{respBytes}, (usage.PromptTokens + usage.CompletionTokens))
 			}
 		}
 	} else {
@@ -329,11 +321,6 @@ func (h *ChatHandler) tryForwardWithConnection(
 		}
 
 		clientKeyStr := extractClientKeyFromContext(ctx)
-		if clientKeyStr == "" {
-			if keyObj := middleware.GetAuthenticatedApiKey(&http.Request{}); keyObj != nil {
-				clientKeyStr = keyObj.Key
-			}
-		}
 
 		logInfo := &UsageLogInfo{
 			Provider:          provider,

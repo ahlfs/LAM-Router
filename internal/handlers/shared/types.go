@@ -18,6 +18,8 @@ type ModelInfo struct {
 	ComboModels  []string // non-empty when resolved from a combo; each entry is "provider/model"
 	Strategy     string   // combo routing strategy: "fallback", "round-robin", "sticky", "fusion"
 	StickyLimit  int      // sticky round-robin: consecutive requests per model before rotating (default 1)
+	SystemPrompt string   // prompt injected before forwarding; empty = no injection
+	InjectMode   string   // "prepend" | "append" | "replace" | "hidden_user"; default "prepend"
 }
 
 // ConnectionData holds parsed fields from the providerConnections.data JSON blob.
@@ -41,6 +43,7 @@ type UsageLogInfo struct {
 	ConnectionID      string
 	APIKey            string
 	ClientAPIKey      string
+	ClientAPIKeyName  string
 	Endpoint          string
 	CompressionTokens int
 }

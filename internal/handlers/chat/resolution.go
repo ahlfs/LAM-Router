@@ -206,6 +206,8 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 				if firstInfo != nil {
 					firstInfo.ComboModels = flattened
 					firstInfo.Strategy = combo.Strategy
+					firstInfo.SystemPrompt = combo.SystemPrompt
+					firstInfo.InjectMode = combo.InjectMode
 					return firstInfo, nil
 				}
 			}
@@ -233,6 +235,14 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 				if firstInfo != nil {
 					firstInfo.ComboModels = targets
 					firstInfo.Strategy = "fallback"
+					// baca system_prompt dan inject_mode dari fallback_rules untuk source_model ini
+					var sp, im string
+					_ = rawDB.QueryRow(
+						`SELECT COALESCE(MAX(system_prompt),''), COALESCE(MAX(inject_mode),'prepend') FROM fallback_rules WHERE source_model = ?`,
+						modelStr,
+					).Scan(&sp, &im)
+					firstInfo.SystemPrompt = sp
+					firstInfo.InjectMode = im
 					return firstInfo, nil
 				}
 			}

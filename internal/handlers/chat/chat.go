@@ -3,6 +3,7 @@ package chat
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -83,6 +84,21 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 				return
 			}
 		}
+	}
+
+	// Prompt injection: terapkan sebelum diteruskan ke upstream / combo
+	// 1. Global inject (system_settings)
+	if rawDB := h.Repo.RawDB(); rawDB != nil {
+		var globalPrompt, globalMode string
+		_ = rawDB.QueryRow("SELECT value FROM system_settings WHERE key = 'global_system_prompt'").Scan(&globalPrompt)
+		_ = rawDB.QueryRow("SELECT value FROM system_settings WHERE key = 'global_inject_mode'").Scan(&globalMode)
+		if globalPrompt != "" {
+			body = InjectSystemPrompt(body, globalPrompt, globalMode)
+		}
+	}
+	// 2. Combo-level inject (diisi oleh resolveModel)
+	if modelInfo.SystemPrompt != "" {
+		body = InjectSystemPrompt(body, modelInfo.SystemPrompt, modelInfo.InjectMode)
 	}
 
 	if len(modelInfo.ComboModels) > 0 {
@@ -304,8 +320,14 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		seen[id] = true
-		if ctxLen == 0 && maxOut == 0 {
-			ctxLen, maxOut = providers.GetModelTokenLimits(id)
+		if ctxLen == 0 || maxOut == 0 {
+			familyCtx, familyOut := providers.GetModelTokenLimits(id)
+			if ctxLen == 0 {
+				ctxLen = familyCtx
+			}
+			if maxOut == 0 {
+				maxOut = familyOut
+			}
 		}
 		data = append(data, modelObj{
 			ID:                  id,
@@ -446,6 +468,22 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctxLen, maxOut := providers.GetModelTokenLimits(modelID)
+	ctxSource := "heuristic"
+	// A window discovered from the provider (or repaired at startup) beats the
+	// family heuristic; without this the info endpoint kept reporting 128k for a
+	// model whose real window is 1M.
+	if h.Repo != nil {
+		if rawDB := h.Repo.RawDB(); rawDB != nil {
+			var dbCtx int
+			var dbSrc sql.NullString
+			if err := rawDB.QueryRow(`SELECT COALESCE(context_length, 0), context_source FROM provider_models WHERE model_id = ? ORDER BY COALESCE(context_length, 0) DESC LIMIT 1`, modelID).Scan(&dbCtx, &dbSrc); err == nil && dbCtx > 0 {
+				ctxLen = dbCtx
+				if dbSrc.Valid && dbSrc.String != "" {
+					ctxSource = dbSrc.String
+				}
+			}
+		}
+	}
 
 	info := map[string]any{
 		"id":                    modelID,
@@ -453,6 +491,7 @@ func (h *ChatHandler) HandleModelsInfo(w http.ResponseWriter, r *http.Request) {
 		"owned_by":              modelInfo.Provider,
 		"endpoint":              "/v1/chat/completions",
 		"context_length":        ctxLen,
+		"context_source":        ctxSource,
 		"max_completion_tokens": maxOut,
 		"max_input_tokens":      ctxLen - maxOut,
 		"max_output_tokens":     maxOut,

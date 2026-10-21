@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"lamrouter/internal/constants"
@@ -20,14 +21,62 @@ import (
 
 var dailyUsageMu sync.Mutex
 
+// requestLogSeq keeps two requests that finish in the same millisecond from
+// colliding on one audit row id (INSERT OR REPLACE would drop the earlier row).
+var requestLogSeq atomic.Uint64
+
+// extractClientKeyFromContext returns the api_keys.id of the calling client key.
+// The credential itself is never returned: request logs stay readable by an
+// operator without exposing a usable key.
 func extractClientKeyFromContext(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
 	if clientKeyObj, ok := ctx.Value(middleware.ApiKeyContextKey).(*models.APIKey); ok && clientKeyObj != nil {
-		return clientKeyObj.Key
+		return clientKeyObj.ID
 	}
 	return ""
+}
+
+// clientKeyIdentity resolves the audit identity of the calling key: its
+// api_keys.id plus the display name as of request time. Auth refusals and
+// dashboard sessions carry pseudo identities, and a request with no key at all
+// is recorded as "none". The upstream provider credential is never a stand-in
+// for the client key — it belongs to the connection, not the caller.
+func (h *ChatHandler) clientKeyIdentity(info *UsageLogInfo) (id, name string) {
+	id = info.ClientAPIKey
+	name = info.ClientAPIKeyName
+	switch {
+	case id == "":
+		id, name = models.NoClientKeyID, models.NoClientKeyName
+	case id == models.NoClientKeyID:
+		name = models.NoClientKeyName
+	case id == models.AdminSessionKeyID:
+		name = models.AdminSessionKeyName
+	case strings.HasPrefix(id, "unmatched:"):
+		name = models.UnknownClientKeyName
+	default:
+		if name == "" && h.Repo != nil {
+			name = h.Repo.GetApiKeyName(id)
+		}
+	}
+	return id, name
+}
+
+// ClientKeyIdentityFromRequest exposes the caller's audit identity to handlers
+// outside this package (media endpoints persist usage through LogUsage too).
+func ClientKeyIdentityFromRequest(r *http.Request) (id, name string) {
+	if r == nil {
+		return "", ""
+	}
+	keyObj := middleware.GetAuthenticatedApiKey(r)
+	if keyObj == nil {
+		return "", ""
+	}
+	if keyObj.Name != nil {
+		name = *keyObj.Name
+	}
+	return keyObj.ID, name
 }
 
 // LogError persists a failed request record to request_logs, usage_history, request_detail, and usagetracker.
@@ -65,25 +114,19 @@ func (h *ChatHandler) LogError(info *UsageLogInfo, statusCode int, latencyMs int
 	)
 
 	// Insert into request_logs for LAM-Router React Dashboard traffic & analytics
+	apiKeyID, apiKeyName := h.clientKeyIdentity(info)
 	rawDB := h.Repo.RawDB()
 	if rawDB != nil {
 		nowMillis := time.Now().UnixMilli()
-		reqLogID := fmt.Sprintf("req_%d_%s", nowMillis, info.Provider)
-		apiKeyID := info.ClientAPIKey
-		if apiKeyID == "" {
-			apiKeyID = maskAPIKey(info.APIKey)
-		}
-		if apiKeyID == "" {
-			apiKeyID = "none"
-		}
+		reqLogID := fmt.Sprintf("req_%d_%d_%s", nowMillis, requestLogSeq.Add(1), info.Provider)
 
 		_, err := rawDB.Exec(`
 			INSERT OR REPLACE INTO request_logs (
-				id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
+				id, api_key_id, api_key_name, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
 				status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, compression_tokens, reasoning_tokens, estimated_cost,
 				fallback_occurred, fallback_reason
-			) VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0, 0, ?, 0, 0, 0, ?)
-		`, reqLogID, apiKeyID, info.Provider, info.Model, promptTokens, promptTokens,
+			) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, 0, 0, ?, 0, 0, 0, ?)
+		`, reqLogID, apiKeyID, apiKeyName, info.Provider, info.Model, promptTokens, promptTokens,
 			statusCode, latencyMs, nowMillis, info.CompressionTokens, errMsg)
 		if err != nil {
 			log.Error("usage", "insert error to request_logs failed", "error", err)
@@ -113,6 +156,7 @@ func (h *ChatHandler) LogError(info *UsageLogInfo, statusCode int, latencyMs int
 		"provider":     info.Provider,
 		"model":        info.Model,
 		"connectionId": info.ConnectionID,
+		"apiKey":       map[string]string{"id": apiKeyID, "name": apiKeyName},
 		"status":       "error",
 		"statusCode":   statusCode,
 		"errorMessage": errMsg,
@@ -143,11 +187,6 @@ func (h *ChatHandler) LogEarlyError(r *http.Request, statusCode int, errMsg stri
 	clientKeyStr := ""
 	if r != nil {
 		clientKeyStr = extractClientKeyFromContext(r.Context())
-		if clientKeyStr == "" {
-			if keyObj := middleware.GetAuthenticatedApiKey(r); keyObj != nil {
-				clientKeyStr = keyObj.Key
-			}
-		}
 	}
 	if model == "" {
 		model = "unknown"
@@ -215,20 +254,17 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 	}
 
 	// Also insert into request_logs for LAM-Router React Dashboard traffic & analytics
+	apiKeyID, apiKeyName := h.clientKeyIdentity(info)
 	rawDB := h.Repo.RawDB()
 	if rawDB != nil {
 		nowMillis := time.Now().UnixMilli()
-		reqLogID := fmt.Sprintf("req_%d_%s", nowMillis, info.Provider)
-		apiKeyID := info.ClientAPIKey
-		if apiKeyID == "" {
-			apiKeyID = maskAPIKey(info.APIKey)
-		}
+		reqLogID := fmt.Sprintf("req_%d_%d_%s", nowMillis, requestLogSeq.Add(1), info.Provider)
 		_, _ = rawDB.Exec(`
 			INSERT OR REPLACE INTO request_logs (
-				id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
+				id, api_key_id, api_key_name, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
 				status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, compression_tokens, reasoning_tokens, estimated_cost
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		`, reqLogID, apiKeyID, info.Provider, info.Model, usage.PromptTokens, usage.CompletionTokens, totalTokens,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		`, reqLogID, apiKeyID, apiKeyName, info.Provider, info.Model, usage.PromptTokens, usage.CompletionTokens, totalTokens,
 			200, latencyMs, nowMillis, cachedTokens, cacheCreationTokens, info.CompressionTokens, usage.ReasoningTokens(), cost)
 	}
 
@@ -245,9 +281,10 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 
 	reqData, err := json.Marshal(map[string]any{
 		"id": reqID, "provider": info.Provider, "model": info.Model,
-		"connectionId": info.ConnectionID, "status": "success",
+		"connectionId": info.ConnectionID, "apiKey": map[string]string{"id": apiKeyID, "name": apiKeyName},
+		"status":    "success",
 		"timestamp": now.Format("2006-01-02T15:04:05.000Z"),
-		"latency": map[string]int64{"ttft": ttftMs, "total": latencyMs},
+		"latency":   map[string]int64{"ttft": ttftMs, "total": latencyMs},
 		"tokens": map[string]int{
 			"prompt_tokens": usage.PromptTokens, "completion_tokens": usage.CompletionTokens,
 			"cached_tokens": cachedTokens, "cache_creation_input_tokens": cacheCreationTokens,

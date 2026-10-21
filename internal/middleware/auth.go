@@ -2,9 +2,12 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"lamrouter/internal/db"
@@ -13,7 +16,32 @@ import (
 	"lamrouter/internal/models"
 )
 
-func logAuthError(repo *db.Repo, apiKeyID, errMsg string, statusCode int) {
+// unknownKeyFingerprint derives a short, non-reversible tag for a presented key
+// that matched no api_keys row. Repeated refusals from the same key stay
+// correlatable in the audit trail without the credential being stored.
+func unknownKeyFingerprint(apiKey string) string {
+	if apiKey == "" {
+		return "none"
+	}
+	sum := sha256.Sum256([]byte(apiKey))
+	return "unmatched:" + hex.EncodeToString(sum[:])[:8]
+}
+
+// apiKeyDisplayName returns the human label for a key, tolerating a NULL name.
+func apiKeyDisplayName(apiKeyObj *models.APIKey) string {
+	if apiKeyObj == nil || apiKeyObj.Name == nil {
+		return ""
+	}
+	return *apiKeyObj.Name
+}
+
+// authLogSeq disambiguates audit rows written within the same millisecond.
+var authLogSeq atomic.Uint64
+
+// logAuthError records a refused request. apiKeyID is the api_keys.id when the
+// key resolved, otherwise a fingerprint; history rows written before this
+// existed hold raw keys, so callers must never pass one through here.
+func logAuthError(repo *db.Repo, apiKeyID, apiKeyName, errMsg string, statusCode int) {
 	if repo == nil {
 		return
 	}
@@ -22,7 +50,9 @@ func logAuthError(repo *db.Repo, apiKeyID, errMsg string, statusCode int) {
 		return
 	}
 	nowMillis := time.Now().UnixMilli()
-	reqLogID := fmt.Sprintf("req_%d_auth", nowMillis)
+	// Two refusals can land in the same millisecond; a shared id would let
+	// INSERT OR REPLACE overwrite the first audit row with the second.
+	reqLogID := fmt.Sprintf("req_%d_%d_auth", nowMillis, authLogSeq.Add(1))
 	if apiKeyID == "" {
 		apiKeyID = "unknown"
 	}
@@ -33,11 +63,11 @@ func logAuthError(repo *db.Repo, apiKeyID, errMsg string, statusCode int) {
 	// columns out of the model and provider breakdowns.
 	_, _ = rawDB.Exec(`
 		INSERT OR REPLACE INTO request_logs (
-			id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
+			id, api_key_id, api_key_name, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
 			status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, compression_tokens, reasoning_tokens, estimated_cost,
 			fallback_occurred, fallback_reason
-		) VALUES (?, ?, 'auth', '', 0, 0, 0, ?, 0, ?, 0, 0, 0, 0, 0, 0, ?)
-	`, reqLogID, apiKeyID, statusCode, nowMillis, errMsg)
+		) VALUES (?, ?, ?, 'auth', '', 0, 0, 0, ?, 0, ?, 0, 0, 0, 0, 0, 0, ?)
+	`, reqLogID, apiKeyID, apiKeyName, statusCode, nowMillis, errMsg)
 }
 
 // ContextKey is a custom type for context keys to avoid collisions.
@@ -55,9 +85,9 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 			// 1. Allow authenticated admin sessions from Web Dashboard (Playground / Benchmark)
 			if cookie, err := r.Cookie("lamrouter_admin_session"); err == nil && cookie != nil && cookie.Value != "" {
 				if repo.VerifyAdminSession(cookie.Value) {
-					adminKeyName := "Admin Dashboard Session"
+					adminKeyName := models.AdminSessionKeyName
 					adminKeyObj := &models.APIKey{
-						ID:       "admin_session",
+						ID:       models.AdminSessionKeyID,
 						Key:      "admin",
 						Name:     &adminKeyName,
 						IsActive: 1,
@@ -70,7 +100,7 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 
 			apiKeyString := ExtractApiKey(r)
 			if apiKeyString == "" {
-				logAuthError(repo, "none", "Authentication required", http.StatusUnauthorized)
+				logAuthError(repo, "none", "", "Authentication required", http.StatusUnauthorized)
 				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Authentication required. Provide an API key via Authorization: Bearer <key> or X-API-Key header.")
 				return
 			}
@@ -79,34 +109,34 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 			apiKeyObj, err := repo.GetApiKeyByKey(apiKeyString)
 			if err != nil {
 				log.Error("auth", "DB lookup error", "error", err)
-				logAuthError(repo, apiKeyString, "DB lookup error: "+err.Error(), http.StatusInternalServerError)
+				logAuthError(repo, unknownKeyFingerprint(apiKeyString), "", "DB lookup error: "+err.Error(), http.StatusInternalServerError)
 				handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Internal server error")
 				return
 			}
 			if apiKeyObj == nil {
-				logAuthError(repo, apiKeyString, "Invalid API key", http.StatusUnauthorized)
+				logAuthError(repo, unknownKeyFingerprint(apiKeyString), "", "Invalid API key", http.StatusUnauthorized)
 				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Invalid API key.")
 				return
 			}
 
 			if apiKeyObj.IsActive != 1 {
-				logAuthError(repo, apiKeyObj.Key, "Invalid or inactive API key", http.StatusUnauthorized)
+				logAuthError(repo, apiKeyObj.ID, apiKeyDisplayName(apiKeyObj), "Invalid or inactive API key", http.StatusUnauthorized)
 				handlerutil.WriteJSONError(w, http.StatusUnauthorized, "Invalid or inactive API key.")
 				return
 			}
 
 			// Check token quota limit
 			if apiKeyObj.QuotaLimit > 0 && apiKeyObj.UsageTokens >= apiKeyObj.QuotaLimit {
-				log.Warn("auth", "token quota limit exceeded", "key", apiKeyObj.Key, "usage", apiKeyObj.UsageTokens, "limit", apiKeyObj.QuotaLimit)
-				logAuthError(repo, apiKeyObj.Key, "Token quota limit exceeded", http.StatusTooManyRequests)
+				log.Warn("auth", "token quota limit exceeded", "key", apiKeyObj.ID, "usage", apiKeyObj.UsageTokens, "limit", apiKeyObj.QuotaLimit)
+				logAuthError(repo, apiKeyObj.ID, apiKeyDisplayName(apiKeyObj), "Token quota limit exceeded", http.StatusTooManyRequests)
 				handlerutil.WriteJSONError(w, http.StatusTooManyRequests, "Token quota limit exceeded. Please top up or increase the quota limit for this API key.")
 				return
 			}
 
 			// Check credit cost limit
 			if apiKeyObj.CreditLimit > 0 && apiKeyObj.UsageCost >= apiKeyObj.CreditLimit {
-				log.Warn("auth", "credit limit exceeded", "key", apiKeyObj.Key, "cost", apiKeyObj.UsageCost, "limit", apiKeyObj.CreditLimit)
-				logAuthError(repo, apiKeyObj.Key, "Credit limit exceeded", http.StatusTooManyRequests)
+				log.Warn("auth", "credit limit exceeded", "key", apiKeyObj.ID, "cost", apiKeyObj.UsageCost, "limit", apiKeyObj.CreditLimit)
+				logAuthError(repo, apiKeyObj.ID, apiKeyDisplayName(apiKeyObj), "Credit limit exceeded", http.StatusTooManyRequests)
 				handlerutil.WriteJSONError(w, http.StatusTooManyRequests, "Credit limit exceeded. Please add credit to continue using this API key.")
 				return
 			}

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
     model_id TEXT NOT NULL,
     display_name TEXT,
     context_length INTEGER DEFAULT 0,
+    context_source TEXT DEFAULT '',
     is_custom INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     created_at INTEGER NOT NULL,

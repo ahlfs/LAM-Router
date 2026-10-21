@@ -1,5 +1,40 @@
 # Changelog
 
+## [v2.2.0] — 2026-10-21
+
+### Sorotan
+- **feat(prompt-inject): system prompt bisa disuntikkan per combo maupun global, tanpa menyentuh
+  klien.** Empat mode: `prepend` (di atas system prompt klien), `append` (di bawahnya), `replace`
+  (menimpa system prompt klien), dan `hidden_user` (dikirim sebagai giliran `user` + `assistant:
+  "Understood."` sebelum pesan pertama klien — untuk model yang mengabaikan peran `system` atau
+  klien yang mengunci system prompt-nya). Prompt global dijalankan lebih dulu, prompt combo
+  menumpuk di atasnya, dan cakupan combo mengikuti `fallback_rules.source_model`. Disimpan di
+  `fallback_rules.system_prompt` / `inject_mode` serta `system_settings.global_system_prompt` /
+  `global_inject_mode`, dengan API `GET /v1/prompt-inject` dan `POST /v1/prompt-inject/set`.
+  Halaman **Prompt Inject** di dashboard memakai tema dan sidebar LAM Cyberlab, lengkap dengan
+  dropdown mode kustom, penghitung karakter, dan pratinjau hasil injeksi.
+- **feat(logs): setiap baris request log kini mencatat API key mana yang dipakai.** Kolom Cost
+  diganti kolom **API Key** (biaya pindah ke detail baris), `request_logs` menyimpan
+  `api_key_id` + `api_key_name` hasil pencocokan hash key, dan key yang tidak dikenal dicatat
+  lewat `unknownKeyFingerprint` — nilai key mentah tidak pernah masuk database maupun log.
+- **fix(context): jendela konteks DeepSeek 4.1 terbaca 128k padahal 1M.** Metadata konteks dari
+  upstream sekarang menang atas heuristik lokal, nilai yang sudah diketahui lebih besar tidak
+  pernah diturunkan, dan override manual tidak pernah ditimpa saat sinkronisasi. Sumber tiap nilai
+  disimpan di `provider_models.context_source` (`heuristic` / `upstream` / `manual`) dan
+  ditampilkan sebagai chip di katalog model, dengan peringatan saat sinkronisasi gagal.
+
+### Ditambahkan
+- `internal/handlers/chat/inject.go`: mesin injeksi prompt (4 mode, penumpukan global → combo)
+  yang dipanggil setelah `resolveModel()`, plus `inject_test.go`.
+- `internal/handlers/routerapi/prompt_inject.go`: handler GET/SET prompt inject beserta validasi
+  mode, dan `prompt-inject.html` yang dirender di dalam shell dashboard.
+- Guard test `logs_api_key_test.go` dan `model_context_test.go` untuk atribusi API key serta
+  aturan provenance konteks.
+
+### Diperbaiki
+- Jarak antar kolom tabel log dirapikan agar nama API key yang panjang tidak mendorong kolom lain.
+- Label versi statis di bundel dashboard disinkronkan dengan versi paket npm (`v2.2.0 Live`).
+
 ## [v2.1.0] — 2026-10-21
 
 ### Sorotan

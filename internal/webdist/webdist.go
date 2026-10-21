@@ -23,6 +23,20 @@ func ServeIndex(w http.ResponseWriter, req *http.Request) {
 	http.FileServer(http.FS(sub)).ServeHTTP(w, req)
 }
 
+// ServePromptInject serves the standalone prompt-inject admin page.
+// It lives outside the React bundle so it can be shipped without a frontend build.
+func ServePromptInject(w http.ResponseWriter, req *http.Request) {
+	data, err := distFS.ReadFile("dist/prompt-inject.html")
+	if err != nil {
+		http.Error(w, "prompt inject page not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+}
+
 // RegisterWebUI mounts the embedded React dashboard static files on the chi router.
 // If a requested file doesn't exist, it falls back to index.html to support SPA client-side routing.
 func RegisterWebUI(r chi.Router) {

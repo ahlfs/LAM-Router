@@ -118,11 +118,11 @@ func TestHandleLogsStats_TodayStartsAtLocalMidnight(t *testing.T) {
 	}
 
 	now := time.Now()
-	dayMs := int64(24 * 60 * 60 * 1000)
 	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
 
-	// Noon yesterday: well within 24 hours, but not today.
-	beforeMidnight := startOfDay - dayMs/2
+	// The last minute of yesterday: always inside the last 24 hours, never
+	// inside today, at any hour the suite happens to run.
+	beforeMidnight := startOfDay - 60*1000
 
 	_, err = dbConn.Exec(`
 INSERT INTO request_logs (id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, compression_tokens, estimated_cost)

@@ -147,6 +147,19 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	return &apiKey, nil
 }
 
+// GetApiKeyName returns the display name recorded for an API key id. An unknown,
+// deleted or pseudo id yields "" so callers can fall back to the id itself.
+func (r *Repo) GetApiKeyName(id string) string {
+	if r == nil || r.db == nil || id == "" {
+		return ""
+	}
+	var name string
+	if err := r.db.QueryRow("SELECT name FROM api_keys WHERE id = ? LIMIT 1", id).Scan(&name); err != nil {
+		return ""
+	}
+	return name
+}
+
 // IncrementApiKeyUsage increments token usage and cost for an API key in the api_keys table.
 func (r *Repo) IncrementApiKeyUsage(keyOrID string, tokens int, cost float64) error {
 	if keyOrID == "" {
@@ -396,10 +409,18 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	}
 	combo.Strategy = "fallback" // default
 
-	// strategy column may exist in newer DBs
-	var strat string
-	if err := r.db.QueryRow("SELECT strategy FROM combos WHERE id = ?", combo.ID).Scan(&strat); err == nil && strat != "" {
-		combo.Strategy = strat
+	// strategy, system_prompt, inject_mode — kolom yang mungkin belum ada di DB lama
+	var strat, sp, im sql.NullString
+	_ = r.db.QueryRow("SELECT strategy, COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend') FROM combos WHERE id = ?", combo.ID).
+		Scan(&strat, &sp, &im)
+	if strat.Valid && strat.String != "" {
+		combo.Strategy = strat.String
+	}
+	if sp.Valid {
+		combo.SystemPrompt = sp.String
+	}
+	if im.Valid && im.String != "" {
+		combo.InjectMode = im.String
 	}
 
 	return &combo, nil

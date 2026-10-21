@@ -13,6 +13,8 @@ import (
 	"lamrouter/internal/db"
 	"lamrouter/internal/handlers/shared"
 	"lamrouter/internal/middleware"
+	"lamrouter/internal/models"
+	"lamrouter/internal/providers"
 )
 
 // InitSchema ensures the LAM-Router tables exist in the SQLite database.
@@ -98,6 +100,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
 CREATE TABLE IF NOT EXISTS request_logs (
     id TEXT PRIMARY KEY,
     api_key_id TEXT,
+    api_key_name TEXT,
     provider_id TEXT NOT NULL,
     model TEXT NOT NULL,
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
@@ -154,6 +157,7 @@ CREATE TABLE IF NOT EXISTS provider_models (
     model_id TEXT NOT NULL,
     display_name TEXT,
     context_length INTEGER DEFAULT 0,
+    context_source TEXT DEFAULT '',
     is_custom INTEGER DEFAULT 0,
     is_active INTEGER DEFAULT 1,
     created_at INTEGER NOT NULL,
@@ -222,6 +226,16 @@ CREATE TABLE IF NOT EXISTS model_health (
 		_, _ = dbConn.Exec(`ALTER TABLE providers ADD COLUMN priority INTEGER DEFAULT 999999`)
 		_, _ = dbConn.Exec(`ALTER TABLE providerConnections ADD COLUMN priority INTEGER DEFAULT 999999`)
 		_, _ = dbConn.Exec(`ALTER TABLE request_logs ADD COLUMN compression_tokens INTEGER DEFAULT 0`)
+		_, _ = dbConn.Exec(`ALTER TABLE request_logs ADD COLUMN api_key_name TEXT`)
+		_, _ = dbConn.Exec(`ALTER TABLE provider_models ADD COLUMN context_source TEXT DEFAULT ''`)
+		// prompt inject: kolom baru di combos dan fallback_rules
+		_, _ = dbConn.Exec(`ALTER TABLE combos ADD COLUMN system_prompt TEXT DEFAULT ''`)
+		_, _ = dbConn.Exec(`ALTER TABLE combos ADD COLUMN inject_mode TEXT DEFAULT 'prepend'`)
+		_, _ = dbConn.Exec(`ALTER TABLE fallback_rules ADD COLUMN system_prompt TEXT DEFAULT ''`)
+		_, _ = dbConn.Exec(`ALTER TABLE fallback_rules ADD COLUMN inject_mode TEXT DEFAULT 'prepend'`)
+		_, _ = dbConn.Exec(`UPDATE provider_models SET context_source = 'heuristic' WHERE COALESCE(context_source, '') = ''`)
+		migrateRequestLogAPIKeys(dbConn)
+		repairModelContextWindows(dbConn)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN isActive INTEGER DEFAULT 1`)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN enabled INTEGER DEFAULT 1`)
 
@@ -229,6 +243,81 @@ CREATE TABLE IF NOT EXISTS model_health (
 		_ = h.InitHealthSchema()
 	}
 	return err
+}
+
+// migrateRequestLogAPIKeys upgrades audit rows written before client key
+// identity tracking existed. Those rows hold either the raw client key or, for
+// requests with no client key, a masked upstream credential. Both are rewritten
+// to the stable api_keys identity so the audit trail says which key was used
+// without keeping a usable secret in the table. Idempotent; safe to run on every
+// start and on databases that have no api_keys table yet.
+func migrateRequestLogAPIKeys(dbConn *sql.DB) {
+	// Rows already carrying an api_keys.id gain the display name of that key.
+	_, _ = dbConn.Exec(`
+		UPDATE request_logs
+		SET api_key_name = (SELECT name FROM api_keys WHERE api_keys.id = request_logs.api_key_id)
+		WHERE (api_key_name IS NULL OR api_key_name = '')
+		  AND api_key_id IN (SELECT id FROM api_keys)`)
+	// Rows carrying the raw client key are re-pointed at that key's identity.
+	_, _ = dbConn.Exec(`
+		UPDATE request_logs
+		SET api_key_id = (SELECT id FROM api_keys WHERE api_keys.key = request_logs.api_key_id),
+		    api_key_name = (SELECT name FROM api_keys WHERE api_keys.key = request_logs.api_key_id)
+		WHERE api_key_id IN (SELECT key FROM api_keys)`)
+	// Dashboard sessions used to be recorded under the bare marker "admin".
+	_, _ = dbConn.Exec(`
+		UPDATE request_logs
+		SET api_key_id = ?, api_key_name = ?
+		WHERE api_key_id = 'admin'`, models.AdminSessionKeyID, models.AdminSessionKeyName)
+	// A raw router key whose row was deleted must not survive readable.
+	_, _ = dbConn.Exec(`
+		UPDATE request_logs
+		SET api_key_id = substr(api_key_id, 1, 9) || '…' || substr(api_key_id, -4)
+		WHERE api_key_id LIKE 'lam-live-%'
+		  AND api_key_id NOT IN (SELECT key FROM api_keys)`)
+	// Non-key markers keep their id but still get the label the dashboard shows.
+	_, _ = dbConn.Exec(`UPDATE request_logs SET api_key_name = ? WHERE api_key_id = ?`,
+		models.NoClientKeyName, models.NoClientKeyID)
+	_, _ = dbConn.Exec(`UPDATE request_logs SET api_key_name = ? WHERE api_key_id LIKE 'unmatched:%'`,
+		models.UnknownClientKeyName)
+}
+
+// repairModelContextWindows fixes provider_models rows written by older syncs that
+// stamped every discovered model with a flat 128k context window. A model whose
+// family is known to be larger (gemini 1M, claude/o-series 200k, deepseek-v4 1M)
+// is lifted to that size so /v1/models and the dashboard stop under-reporting.
+// Manual overrides are never touched and rows already at or above the family size
+// are left alone, making this idempotent.
+func repairModelContextWindows(dbConn *sql.DB) {
+	rows, err := dbConn.Query(`SELECT provider_id, model_id, COALESCE(context_length, 0)
+		FROM provider_models
+		WHERE COALESCE(context_length, 0) <= 131072 AND COALESCE(context_source, '') <> 'manual'`)
+	if err != nil {
+		return
+	}
+	type fix struct {
+		provider, model string
+		ctx             int
+	}
+	var fixes []fix
+	for rows.Next() {
+		var providerID, modelID string
+		var ctxLen int
+		if err := rows.Scan(&providerID, &modelID, &ctxLen); err != nil {
+			continue
+		}
+		want, _ := providers.GetModelTokenLimits(modelID)
+		// Only upgrade when the family table knows better than the stored default.
+		if want > 131072 && want > ctxLen {
+			fixes = append(fixes, fix{providerID, modelID, want})
+		}
+	}
+	rows.Close()
+	for _, f := range fixes {
+		_, _ = dbConn.Exec(`UPDATE provider_models SET context_length = ?, context_source = 'heuristic'
+			WHERE provider_id = ? AND model_id = ? AND COALESCE(context_source, '') <> 'manual'`,
+			f.ctx, f.provider, f.model)
+	}
 }
 
 // SHA256 helper
@@ -333,6 +422,9 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 		})
 		admin.HandleFunc("/v1/providers/{providerId}/sync", h.HandleProviderSyncModels)
 		admin.HandleFunc("/v1/providers/{providerId}/models/toggle", h.HandleProviderModelToggle)
+		admin.HandleFunc("/v1/providers/{providerId}/models/context", h.HandleProviderModelContext)
+		admin.HandleFunc("/v1/prompt-inject", h.HandlePromptInjectGet)
+		admin.HandleFunc("/v1/prompt-inject/set", h.HandlePromptInjectSet)
 		admin.HandleFunc("/v1/providers/{providerId}/models/{modelId}/toggle", h.HandleProviderModelToggle)
 		admin.HandleFunc("/v1/providers/{providerId}/models/{modelId}", h.HandleCustomModelDelete)
 		admin.HandleFunc("/v1/providers/{providerId}/reorder", h.HandleProviderReorderConnections)

@@ -111,12 +111,15 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 	if resp.StatusCode == http.StatusOK {
 		h.Repo.UpdateConnectionLastUsed(conn.ID)
 		latencyMs := time.Since(start).Milliseconds()
+		clientKeyID, clientKeyName := chat.ClientKeyIdentityFromRequest(r)
 		logInfo := &shared.UsageLogInfo{
-			Provider:     modelInfo.Provider,
-			Model:        modelInfo.Model,
-			ConnectionID: conn.ID,
-			APIKey:       apiKey,
-			Endpoint:     "/embeddings",
+			Provider:         modelInfo.Provider,
+			Model:            modelInfo.Model,
+			ConnectionID:     conn.ID,
+			APIKey:           apiKey,
+			Endpoint:         "/embeddings",
+			ClientAPIKey:     clientKeyID,
+			ClientAPIKeyName: clientKeyName,
 		}
 		h.ChatH.LogUsage(logInfo, nil, latencyMs, body, nil)
 	}
@@ -293,7 +296,9 @@ func (h *MediaHandler) forwardMiMoSpeech(w http.ResponseWriter, r *http.Request,
 	}
 
 	var data struct {
-		Error   *struct{ Message string `json:"message"` } `json:"error"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
 		Choices []struct {
 			Message struct {
 				Audio struct {
@@ -561,12 +566,15 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	if resp.StatusCode == http.StatusOK && conn != nil {
 		h.Repo.UpdateConnectionLastUsed(conn.ID)
 		latencyMs := time.Since(start).Milliseconds()
+		clientKeyID, clientKeyName := chat.ClientKeyIdentityFromRequest(r)
 		logInfo := &shared.UsageLogInfo{
-			Provider:     modelInfo.Provider,
-			Model:        modelInfo.Model,
-			ConnectionID: conn.ID,
-			APIKey:       apiKey,
-			Endpoint:     endpoint,
+			Provider:         modelInfo.Provider,
+			Model:            modelInfo.Model,
+			ConnectionID:     conn.ID,
+			APIKey:           apiKey,
+			Endpoint:         endpoint,
+			ClientAPIKey:     clientKeyID,
+			ClientAPIKeyName: clientKeyName,
 		}
 		h.ChatH.LogUsage(logInfo, nil, latencyMs, body, nil)
 	}

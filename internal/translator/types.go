@@ -34,10 +34,23 @@ type ToolCallState struct {
 type OpenAIUsage struct {
 	PromptTokens             int                      `json:"prompt_tokens"`
 	CompletionTokens         int                      `json:"completion_tokens"`
+	TotalTokens              int                      `json:"total_tokens"`
 	CachedTokens             int                      `json:"cached_tokens"`
 	CacheCreationInputTokens int                      `json:"cache_creation_input_tokens"`
 	PromptTokensDetails      *PromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
 	CompletionTokensDetails  *CompletionTokensDetails `json:"completion_tokens_details,omitempty"`
+}
+
+// MarshalJSON always emits total_tokens. Upstreams frequently omit it and
+// strict OpenAI clients (openai-agents/pydantic Usage) reject a usage object
+// without it, so it is derived from prompt+completion when not set.
+func (u OpenAIUsage) MarshalJSON() ([]byte, error) {
+	type plain OpenAIUsage
+	out := plain(u)
+	if out.TotalTokens <= 0 {
+		out.TotalTokens = out.PromptTokens + out.CompletionTokens
+	}
+	return json.Marshal(out)
 }
 
 type PromptTokensDetails struct {

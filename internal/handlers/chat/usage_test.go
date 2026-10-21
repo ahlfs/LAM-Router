@@ -2,11 +2,14 @@ package chat
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"lamrouter/internal/constants"
 	"lamrouter/internal/handlers/routerapi"
+	"lamrouter/internal/models"
 	"lamrouter/internal/translator"
 )
 
@@ -154,8 +157,8 @@ func TestGetJSONFloatComprehensive(t *testing.T) {
 func TestGetJSONMapComprehensive(t *testing.T) {
 	nested := map[string]any{"foo": "bar"}
 	m := map[string]any{
-		"existing":  nested,
-		"notamap":   "stringval",
+		"existing": nested,
+		"notamap":  "stringval",
 	}
 	tests := []struct {
 		name string
@@ -264,6 +267,73 @@ func buildRequestBody(msgs []translator.OpenAIMessage) []byte {
 	}
 	b, _ := json.Marshal(req)
 	return b
+}
+
+// The request log has to name the client key that made the call. The row used
+// to hold the raw credential (and, with no client key, the masked upstream
+// key), which is neither an identity nor safe to keep in an exportable table.
+func TestLogUsage_RecordsClientKeyIdentity(t *testing.T) {
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	rawDB := h.Repo.RawDB()
+	if err := routerapi.InitSchema(rawDB); err != nil {
+		t.Fatalf("InitSchema failed: %v", err)
+	}
+
+	if _, err := rawDB.Exec(`
+INSERT INTO api_keys (id, key, name, enabled, created_at) VALUES ('key_ops', 'lam-live-ops-secret', 'Ops Team', 1, ?)
+`, time.Now().UnixMilli()); err != nil {
+		t.Fatalf("seed api key: %v", err)
+	}
+
+	cases := []struct {
+		name      string
+		clientKey string
+		wantID    string
+		wantName  string
+	}{
+		{"resolved key", "key_ops", "key_ops", "Ops Team"},
+		{"dashboard session", models.AdminSessionKeyID, models.AdminSessionKeyID, models.AdminSessionKeyName},
+		{"no client key", "", models.NoClientKeyID, models.NoClientKeyName},
+		{"unknown key", "unmatched:5da76d17", "unmatched:5da76d17", models.UnknownClientKeyName},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &UsageLogInfo{
+				Provider:     fmt.Sprintf("prov-%d", i),
+				Model:        "test-model",
+				ConnectionID: "conn-test",
+				APIKey:       "«reda...…»",
+				ClientAPIKey: tc.clientKey,
+			}
+			h.LogUsage(info, &translator.OpenAIUsage{PromptTokens: 1, CompletionTokens: 1}, 5, nil, nil)
+
+			var id, name string
+			if err := rawDB.QueryRow(`
+SELECT api_key_id, COALESCE(api_key_name, '') FROM request_logs WHERE provider_id = ?
+`, info.Provider).Scan(&id, &name); err != nil {
+				t.Fatalf("read request log: %v", err)
+			}
+			if id != tc.wantID || name != tc.wantName {
+				t.Fatalf("expected id=%q name=%q, got id=%q name=%q", tc.wantID, tc.wantName, id, name)
+			}
+		})
+	}
+
+	// A renamed key keeps its old rows honest: the log stores the name that was
+	// in force at request time, not a join that changes history.
+	if _, err := rawDB.Exec(`UPDATE api_keys SET name = 'Ops Team v2' WHERE id = 'key_ops'`); err != nil {
+		t.Fatalf("rename key: %v", err)
+	}
+	var stored string
+	if err := rawDB.QueryRow(`SELECT COALESCE(api_key_name, '') FROM request_logs WHERE api_key_id = 'key_ops'`).Scan(&stored); err != nil {
+		t.Fatalf("read stored name: %v", err)
+	}
+	if stored != "Ops Team" {
+		t.Fatalf("history must keep the name used at request time, got %q", stored)
+	}
 }
 
 func TestLogUsage_PersistsCompressionTokens(t *testing.T) {

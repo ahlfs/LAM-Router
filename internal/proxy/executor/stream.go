@@ -683,6 +683,11 @@ func ProcessCommandcodeEvent(event map[string]any, eventType string, state *Comm
 				usage["completion_tokens"] = int(ct)
 			}
 			if len(usage) > 0 {
+				pt, _ := usage["prompt_tokens"].(int)
+				ct, _ := usage["completion_tokens"].(int)
+				if _, ok := usage["total_tokens"]; !ok {
+					usage["total_tokens"] = pt + ct
+				}
 				var parsed map[string]any
 				if err := json.Unmarshal([]byte(chunk), &parsed); err != nil {
 					log.Warn("executor", "commandcode unmarshal chunk", "error", err)

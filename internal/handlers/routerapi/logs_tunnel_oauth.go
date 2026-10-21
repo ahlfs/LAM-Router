@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/models"
 	"lamrouter/internal/usagetracker"
 )
 
@@ -33,8 +34,15 @@ func (h *RouterAPIHandler) HandleLogsList(w http.ResponseWriter, r *http.Request
 	_, sinceMs := parseStatsPeriod(statsRequestedPeriod(r), time.Now())
 	timeFilter, timeArgs := statsTimeFilter(sinceMs)
 
+	// ?apiKeyId= narrows the list to one client key; the dashboard uses it to
+	// open "everything this key did" from a log row.
+	if apiKeyFilter := strings.TrimSpace(r.URL.Query().Get("apiKeyId")); apiKeyFilter != "" {
+		timeFilter = joinFilter(timeFilter, "api_key_id = ?")
+		timeArgs = append(timeArgs, apiKeyFilter)
+	}
+
 	rows, err := h.db.Query(`
-SELECT id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, reasoning_tokens, estimated_cost, fallback_occurred, COALESCE(fallback_reason, '')
+SELECT id, api_key_id, COALESCE(api_key_name, ''), provider_id, model, prompt_tokens, completion_tokens, total_tokens, status_code, latency_ms, created_at, cached_tokens, reasoning_tokens, estimated_cost, fallback_occurred, COALESCE(fallback_reason, '')
 FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
 `, timeArgs...)
 	if err != nil {
@@ -47,8 +55,37 @@ FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
 	defer rows.Close()
 
 	var logs []map[string]any
+	// Older rows (and keys deleted since) carry no name; resolve one per distinct
+	// id so the dashboard never shows a bare marker where a key name belongs.
+	keyNameByID := map[string]string{}
+	displayKeyName := func(id, name string) string {
+		if name != "" {
+			return name
+		}
+		if resolved, ok := keyNameByID[id]; ok {
+			return resolved
+		}
+		resolved := ""
+		switch {
+		case id == "" || id == models.NoClientKeyID:
+			resolved = models.NoClientKeyName
+		case strings.HasPrefix(id, "unmatched:"):
+			resolved = models.UnknownClientKeyName
+		case id == models.AdminSessionKeyID:
+			resolved = models.AdminSessionKeyName
+		default:
+			if h.repo != nil {
+				resolved = h.repo.GetApiKeyName(id)
+			}
+			if resolved == "" {
+				resolved = models.UnknownClientKeyName
+			}
+		}
+		keyNameByID[id] = resolved
+		return resolved
+	}
 	for rows.Next() {
-		var id, apiKeyID, providerID, model string
+		var id, apiKeyID, apiKeyName, providerID, model string
 		var promptTok, compTok, totalTok, status, latency int
 		var createdAt, cachedTok, reasoningTok int64
 		var cost float64
@@ -56,7 +93,7 @@ FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
 		var fallbackReason string
 
 		err := rows.Scan(
-			&id, &apiKeyID, &providerID, &model, &promptTok, &compTok,
+			&id, &apiKeyID, &apiKeyName, &providerID, &model, &promptTok, &compTok,
 			&totalTok, &status, &latency, &createdAt, &cachedTok,
 			&reasoningTok, &cost, &fallbackOccurred, &fallbackReason,
 		)
@@ -73,6 +110,7 @@ FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
 		logs = append(logs, map[string]any{
 			"id":               id,
 			"apiKeyId":         apiKeyID,
+			"apiKeyName":       displayKeyName(apiKeyID, apiKeyName),
 			"providerId":       providerID,
 			"model":            model,
 			"promptTokens":     promptTok,
@@ -383,7 +421,6 @@ GROUP BY status_code
 }
 
 // Handlers in quota.go handle GET /v1/quota
-
 
 // GET /v1/tunnel/status
 func (h *RouterAPIHandler) HandleTunnelStatus(w http.ResponseWriter, r *http.Request) {

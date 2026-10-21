@@ -1,0 +1,597 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Prompt Inject · LAM Router</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="/assets/index-_kx-t5bc.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html { margin: 0; padding: 0; background: var(--background, #08090a); }
+  body { margin: 0; padding: 0; background: transparent; }
+  body {
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: var(--foreground, #f7f8f8);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+  }
+  body.standalone { padding: 24px; }
+  .wrap { padding: 0; max-width: 1080px; }
+
+  .eyebrow {
+    margin: 0; font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .16em; color: var(--muted-foreground, #8a8f98); opacity: .8;
+  }
+  h1 { margin: 6px 0 0; font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; }
+  .sub { margin: 6px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground, #8a8f98); max-width: 620px; }
+
+  .stack { display: flex; flex-direction: column; gap: 14px; margin-top: 20px; }
+
+  .card {
+    background: var(--card, rgba(255,255,255,.024));
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 14px;
+    padding: 16px 18px;
+  }
+  .card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .card-title { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -.01em; }
+  .card-hint { margin: 3px 0 0; font-size: 11px; color: var(--muted-foreground, #8a8f98); line-height: 1.5; }
+
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0;
+    font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 999px;
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    color: var(--muted-foreground, #8a8f98); background: transparent;
+  }
+  .pill.on { color: var(--green, #10b981); border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.09); }
+  .dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+
+  textarea {
+    width: 100%; margin-top: 12px; min-height: 108px; resize: vertical;
+    background: var(--field, rgba(255,255,255,.03));
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+    border-radius: 10px; padding: 11px 12px;
+    color: var(--foreground, #f7f8f8); font-family: inherit; font-size: 12.5px; line-height: 1.65;
+    outline: none; transition: border-color .15s, box-shadow .15s;
+  }
+  textarea::placeholder { color: var(--muted-foreground, #8a8f98); opacity: .65; }
+  textarea:focus { border-color: var(--ring, #5e6ad2); box-shadow: 0 0 0 3px rgba(94,106,210,.14); }
+
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+  .row .spacer { flex: 1; }
+
+  button.btn {
+    font-family: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+    border-radius: 9px; padding: 7px 14px; border: 1px solid transparent;
+    background: var(--primary, #5e6ad2); color: #fff; transition: filter .15s, opacity .15s;
+  }
+  button.btn:hover { filter: brightness(1.1); }
+  button.btn:disabled { opacity: .45; cursor: default; filter: none; }
+  button.ghost {
+    background: transparent; color: var(--muted-foreground, #8a8f98);
+    border: 1px solid var(--border, rgba(255,255,255,.08));
+  }
+  button.ghost:hover { color: var(--foreground, #f7f8f8); background: var(--hover); }
+
+  .counter { font-size: 11px; color: var(--muted-foreground, #8a8f98); font-variant-numeric: tabular-nums; }
+
+  /* ---------- custom dropdown (replaces native <select>) ---------- */
+  .dd { position: relative; }
+  .dd-btn {
+    display: inline-flex; align-items: center; gap: 9px;
+    height: 34px; min-width: 236px; max-width: 340px; padding: 0 9px 0 10px;
+    font-family: inherit; font-size: 12px; text-align: left; cursor: pointer;
+    border-radius: 8px; border: 1px solid var(--border, rgba(255,255,255,.08));
+    background: var(--field, rgba(255,255,255,.03)); color: var(--foreground, #f7f8f8);
+    transition: border-color .14s, box-shadow .14s, background .14s;
+  }
+  .dd-btn:hover { background: var(--hover, rgba(255,255,255,.05)); }
+  .dd-btn:focus-visible {
+    outline: none; border-color: var(--ring, #5e6ad2);
+    box-shadow: 0 0 0 3px rgba(94,106,210,.16);
+  }
+  .dd-btn[aria-expanded="true"] {
+    outline: none; border-color: var(--ring, #5e6ad2);
+    box-shadow: none;
+  }
+  .dd-lab { flex: 1; display: flex; align-items: baseline; gap: 8px; overflow: hidden; white-space: nowrap; }
+  .dd-code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+    font-size: 11.5px; font-weight: 600; color: var(--ink, #f7f8f8); flex-shrink: 0;
+  }
+  .dd-desc {
+    font-size: 11px; color: var(--muted-foreground, #8a8f98);
+    overflow: hidden; text-overflow: ellipsis;
+  }
+  .dd-chev { flex-shrink: 0; color: var(--muted-foreground, #8a8f98); transition: transform .16s; display: flex; }
+  .dd-btn[aria-expanded="true"] .dd-chev { transform: rotate(180deg); }
+
+  .dd-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+    min-width: 100%; width: max-content; max-width: 360px; padding: 4px;
+    background: var(--popover, #0f1011); border: 1px solid var(--border, rgba(255,255,255,.1));
+    border-radius: 10px; box-shadow: 0 18px 44px rgba(0,0,0,.42), 0 2px 8px rgba(0,0,0,.28);
+    display: none;
+  }
+  .dd.open .dd-pop { display: block; }
+  .dd-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px; border-radius: 7px;
+    cursor: pointer; color: var(--foreground, #f7f8f8);
+  }
+  .dd-item + .dd-item { margin-top: 1px; }
+  .dd-item:hover { background: var(--hover, rgba(255,255,255,.05)); }
+  .dd-item.kb { background: var(--hover-2, var(--hover, rgba(255,255,255,.07))); }
+  .dd-item[aria-selected="true"] { background: var(--hover-2, rgba(255,255,255,.06)); }
+  .dd-item[aria-selected="true"] .dd-code { color: var(--foreground, #f7f8f8); font-weight: 700; }
+  .dd-check { margin-left: auto; flex-shrink: 0; color: var(--primary, #8b93f0); opacity: 0; display: flex; }
+  .dd-item[aria-selected="true"] .dd-check { opacity: 1; }
+
+  /* preview */
+  .preview {
+    margin-top: 10px; border: 1px dashed var(--border, rgba(255,255,255,.14));
+    border-radius: 9px; padding: 9px 11px; font-size: 11.5px; line-height: 1.7;
+    color: var(--muted-foreground, #8a8f98); background: var(--field);
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .preview b { color: var(--ink-2, #d0d6e0); font-weight: 600; }
+  .preview .inj { color: var(--primary, #8b93f0); }
+
+  /* combo list */
+  .combo-row { border: 1px solid var(--border, rgba(255,255,255,.08)); border-radius: 11px; overflow: visible; background: transparent; }
+  .combo-row + .combo-row { margin-top: 8px; }
+  .combo-summary {
+    display: flex; align-items: center; gap: 10px; padding: 10px 13px; cursor: pointer;
+    user-select: none; transition: background .12s; border-radius: 10px;
+  }
+  .combo-summary:hover { background: var(--hover); }
+  .combo-name { font-size: 12.5px; font-weight: 600; font-family: ui-monospace, Menlo, monospace; }
+  .combo-target { font-size: 11px; color: var(--muted-foreground, #8a8f98); }
+  .combo-body { border-top: 1px solid var(--border, rgba(255,255,255,.06)); padding: 12px 13px; display: none; }
+  .combo-row.open .combo-body { display: block; }
+  .combo-row.open .chev { transform: rotate(90deg); }
+  .chev { margin-left: auto; color: var(--muted-foreground, #8a8f98); transition: transform .15s; display: flex; }
+  .preview-text {
+    font-size: 11.5px; color: var(--muted-foreground, #8a8f98);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 280px;
+  }
+
+  .empty {
+    padding: 22px 16px; text-align: center; font-size: 12px;
+    color: var(--muted-foreground, #8a8f98);
+    border: 1px dashed var(--border, rgba(255,255,255,.1)); border-radius: 11px;
+  }
+
+  /* toast */
+  #toast {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 14px);
+    background: var(--popover, #0f1011); color: var(--foreground, #f7f8f8);
+    border: 1px solid var(--border, rgba(255,255,255,.1));
+    border-radius: 10px; padding: 9px 15px; font-size: 12px; font-weight: 500;
+    box-shadow: 0 12px 30px rgba(0,0,0,.45); opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s; z-index: 60; display: flex; align-items: center; gap: 7px;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { border-color: rgba(244,63,94,.4); color: #ff8fa3; }
+
+  .skeleton { height: 74px; border-radius: 11px; background: var(--field); animation: sk 1.2s ease-in-out infinite alternate; }
+  @keyframes sk { from { opacity: .45; } to { opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">Request Shaping</p>
+  <h1>Prompt Inject</h1>
+  <p class="sub">Inject a system prompt into requests passing through the gateway without touching the client. Global applies to every request; a combo layers its prompt on top.</p>
+
+  <div class="stack">
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">Global prompt</h2>
+          <p class="card-hint">Applied to every request, before any combo prompt.</p>
+        </div>
+        <span class="pill" id="globalBadge"><span class="dot"></span><span id="globalBadgeText">empty</span></span>
+      </div>
+      <textarea id="globalPrompt" placeholder="e.g. Always answer in concise English."></textarea>
+      <div class="row">
+        <div id="globalModeSlot"></div>
+        <span class="counter" id="globalCount">0 chars</span>
+        <span class="spacer"></span>
+        <button class="btn ghost" id="globalClear" type="button">Clear</button>
+        <button class="btn" id="globalSave" type="button">Save</button>
+      </div>
+      <div class="preview" id="globalPreview"></div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2 class="card-title">Combo</h2>
+          <p class="card-hint">Per-combo prompt. Only applies when the request routes through the combo name, not a direct model.</p>
+        </div>
+        <span class="counter" id="counter">loading…</span>
+      </div>
+      <div id="comboList" style="margin-top:12px"></div>
+    </section>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var MODES = [
+    { value: "prepend", desc: "above the client system prompt" },
+    { value: "append", desc: "below the client system prompt" },
+    { value: "replace", desc: "overrides the client system prompt" },
+    { value: "hidden_user", desc: "sent as a user turn" }
+  ];
+  var SAMPLE = "You are a helpful assistant.";
+
+  var state = { global: { systemPrompt: "", injectMode: "prepend" }, combos: [] };
+
+  // --- theme sync: mirror the dashboard's <html> class when framed ---
+  var framed = false;
+  try {
+    if (window.self !== window.top && window.parent.document) {
+      framed = true;
+      var pDoc = window.parent.document;
+      function syncTheme() {
+        document.documentElement.className = pDoc.documentElement.className || "dark";
+        try {
+          var pbg = window.parent.getComputedStyle(pDoc.body).backgroundColor;
+          if (pbg && pbg !== "rgba(0, 0, 0, 0)" && pbg !== "transparent") {
+            document.documentElement.style.background = pbg;
+          }
+        } catch (e2) { /* fall back to the token value */ }
+      }
+      syncTheme();
+      new MutationObserver(syncTheme).observe(pDoc.documentElement, { attributes: true, attributeFilter: ["class"] });
+    } else {
+      document.body.classList.add("standalone");
+      document.documentElement.className = localStorage.getItem("lamrouter-theme") || "dark";
+    }
+  } catch (e) {
+    document.body.classList.add("standalone");
+  }
+
+  // --- auto-height: iframe follows content, including an open dropdown panel ---
+  function fitFrame() {
+    if (!framed) return;
+    try {
+      var el = document.querySelector(".wrap") || document.body;
+      var bottom = el.getBoundingClientRect().bottom;
+      Array.prototype.forEach.call(document.querySelectorAll(".dd.open .dd-pop"), function (p) {
+        bottom = Math.max(bottom, p.getBoundingClientRect().bottom);
+      });
+      var h = Math.max(360, Math.ceil(bottom) + 8);
+      window.frameElement.style.height = h + "px";
+      window.frameElement.style.flexShrink = "0";
+    } catch (e) { /* cross-origin: stay quiet */ }
+  }
+  window.addEventListener("resize", fitFrame);
+  if (framed && window.ResizeObserver) {
+    var wrapEl = document.querySelector(".wrap");
+    if (wrapEl) new ResizeObserver(fitFrame).observe(wrapEl);
+  }
+
+  function $(id) { return document.getElementById(id); }
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  var CHECK_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  var CHEV_SVG = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m6 15 6-6 6 6"/></svg>';
+
+  // ---------- custom dropdown ----------
+  var openDD = null;
+
+  function closeAll(except) {
+    Array.prototype.forEach.call(document.querySelectorAll(".dd.open"), function (d) {
+      if (d === except) return;
+      d.classList.remove("open");
+      d.querySelector(".dd-btn").setAttribute("aria-expanded", "false");
+    });
+    if (!except) openDD = null;
+  }
+
+  document.addEventListener("click", function (e) {
+    if (!e.target.closest(".dd")) closeAll(null);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && openDD) {
+      closeAll(null);
+      openDD.querySelector(".dd-btn").focus();
+    }
+  });
+
+  function makeDD(options, value, onChange) {
+    var dd = document.createElement("div");
+    dd.className = "dd";
+    dd.innerHTML =
+      '<button class="dd-btn" type="button" aria-haspopup="listbox" aria-expanded="false">' +
+        '<span class="dd-lab"><span class="dd-code"></span><span class="dd-desc"></span></span>' +
+        '<span class="dd-chev">' + CHEV_SVG + '</span>' +
+      '</button>' +
+      '<div class="dd-pop" role="listbox" tabindex="-1"></div>';
+
+    var btn = dd.querySelector(".dd-btn");
+    var pop = dd.querySelector(".dd-pop");
+    var cur = value || options[0].value;
+
+    pop.innerHTML = options.map(function (o) {
+      return '<div class="dd-item" role="option" data-v="' + o.value + '" aria-selected="false">' +
+        '<span class="dd-code">' + esc(o.value) + '</span>' +
+        '<span class="dd-desc">' + esc(o.desc) + '</span>' +
+        '<span class="dd-check">' + CHECK_SVG + '</span>' +
+      '</div>';
+    }).join("");
+
+    function paint() {
+      var o = options.filter(function (x) { return x.value === cur; })[0] || options[0];
+      btn.querySelector(".dd-code").textContent = o.value;
+      btn.querySelector(".dd-desc").textContent = o.desc;
+      Array.prototype.forEach.call(pop.querySelectorAll(".dd-item"), function (it) {
+        it.setAttribute("aria-selected", it.getAttribute("data-v") === cur ? "true" : "false");
+        it.classList.remove("kb");
+      });
+    }
+
+    function open() {
+      closeAll(dd);
+      dd.classList.add("open");
+      btn.setAttribute("aria-expanded", "true");
+      openDD = dd;
+      var sel = pop.querySelector('[aria-selected="true"]') || pop.firstElementChild;
+      if (sel) sel.classList.add("kb");
+      fitFrame();
+    }
+
+    function close() {
+      dd.classList.remove("open");
+      btn.setAttribute("aria-expanded", "false");
+      if (openDD === dd) openDD = null;
+      fitFrame();
+    }
+
+    function pick(v) {
+      if (v !== cur) {
+        cur = v;
+        paint();
+        onChange(v);
+      }
+      close();
+      btn.focus();
+    }
+
+    btn.addEventListener("click", function (e) {
+      e.stopPropagation();
+      dd.classList.contains("open") ? close() : open();
+    });
+
+    pop.addEventListener("click", function (e) {
+      var it = e.target.closest(".dd-item");
+      if (it) pick(it.getAttribute("data-v"));
+    });
+
+    dd.addEventListener("keydown", function (e) {
+      var items = Array.prototype.slice.call(pop.querySelectorAll(".dd-item"));
+      var idx = items.findIndex(function (it) { return it.classList.contains("kb"); });
+
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        if (!dd.classList.contains("open")) { open(); return; }
+        idx = e.key === "ArrowDown" ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
+        items.forEach(function (it) { it.classList.remove("kb"); });
+        items[idx].classList.add("kb");
+        items[idx].scrollIntoView({ block: "nearest" });
+      } else if (e.key === "Enter" || e.key === " ") {
+        if (dd.classList.contains("open") && idx >= 0) { e.preventDefault(); pick(items[idx].getAttribute("data-v")); }
+      }
+    });
+
+    paint();
+    return {
+      el: dd,
+      get: function () { return cur; },
+      set: function (v) { cur = v; paint(); }
+    };
+  }
+
+  // ---------- preview & badge ----------
+  var toastTimer;
+  function toast(msg, isErr) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.className = "show" + (isErr ? " err" : "");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.className = ""; }, 2400);
+  }
+
+  function preview(prompt, mode) {
+    if (!prompt.trim()) return "<b>No injection yet.</b> Requests pass through unchanged.";
+    var p = "<span class='inj'>" + esc(prompt) + "</span>";
+    if (mode === "replace") return p + "\n<i>client system prompt dropped</i>";
+    if (mode === "hidden_user") return "<b>user:</b> " + p + "\n<b>assistant:</b> Understood.\n<b>user:</b> (original client message)";
+    if (mode === "append") return "<b>system:</b> " + SAMPLE + "\n\n" + p;
+    return p + "\n\n<b>system:</b> " + SAMPLE;
+  }
+
+  var globalDD = makeDD(MODES, "prepend", function (v) {
+    updateGlobalPreview(v);
+  });
+  $("globalModeSlot").appendChild(globalDD.el);
+
+  function setBadge(el, textEl, prompt) {
+    var on = !!(prompt && prompt.trim());
+    el.classList.toggle("on", on);
+    textEl.textContent = on ? "active" : "empty";
+  }
+
+  function renderGlobal() {
+    var g = state.global;
+    $("globalPrompt").value = g.systemPrompt || "";
+    globalDD.set(g.injectMode || "prepend");
+    setBadge($("globalBadge"), $("globalBadgeText"), g.systemPrompt);
+    updateGlobalPreview();
+  }
+
+  function updateGlobalPreview(mode) {
+    var p = $("globalPrompt").value;
+    $("globalCount").textContent = p.length + " chars";
+    $("globalPreview").innerHTML = preview(p, mode || globalDD.get());
+  }
+
+  // ---------- combo list ----------
+  var comboDDs = {};
+
+  function renderCombos() {
+    var list = $("comboList");
+    comboDDs = {};
+    if (!state.combos.length) {
+      list.innerHTML = '<div class="empty">No combos yet. Create a fallback/combo rule first, then set its prompt here.</div>';
+      return;
+    }
+
+    list.innerHTML = state.combos.map(function (c, i) {
+      var on = !!(c.systemPrompt && c.systemPrompt.trim());
+      return '<div class="combo-row" data-i="' + i + '">' +
+        '<div class="combo-summary">' +
+          '<span class="combo-name">' + esc(c.comboId) + '</span>' +
+          (c.targetModel ? '<span class="combo-target">→ ' + esc(c.targetModel) + '</span>' : '') +
+          '<span class="pill' + (on ? " on" : "") + '"><span class="dot"></span>' + (on ? "active" : "empty") + '</span>' +
+          '<span class="preview-text">' + (on ? esc(c.systemPrompt).slice(0, 90) : "not set") + '</span>' +
+          '<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></span>' +
+        '</div>' +
+        '<div class="combo-body">' +
+          '<textarea data-role="prompt" placeholder="System prompt for combo ' + esc(c.comboId) + '…">' + esc(c.systemPrompt || "") + '</textarea>' +
+          '<div class="row">' +
+            '<span data-role="mode-slot"></span>' +
+            '<span class="spacer"></span>' +
+            '<button class="btn ghost" data-role="clear" type="button">Clear</button>' +
+            '<button class="btn" data-role="save" type="button">Save</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+
+    Array.prototype.forEach.call(list.querySelectorAll(".combo-row"), function (row) {
+      var i = +row.getAttribute("data-i");
+      var combo = state.combos[i];
+      var ta = row.querySelector('[data-role="prompt"]');
+      var dd = makeDD(MODES, combo.injectMode || "prepend", function () {});
+      row.querySelector('[data-role="mode-slot"]').appendChild(dd.el);
+      comboDDs[combo.comboId] = dd;
+
+      row.querySelector(".combo-summary").addEventListener("click", function () {
+        row.classList.toggle("open");
+        fitFrame();
+      });
+      row.querySelector('[data-role="save"]').addEventListener("click", function () {
+        save("combo", combo.comboId, ta.value, dd.get(), row);
+      });
+      row.querySelector('[data-role="clear"]').addEventListener("click", function () {
+        ta.value = "";
+        save("combo", combo.comboId, "", dd.get(), row);
+      });
+      ta.addEventListener("keydown", function (e) {
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+          e.preventDefault();
+          save("combo", combo.comboId, ta.value, dd.get(), row);
+        }
+      });
+    });
+  }
+
+  function updateCounter() {
+    var active = state.combos.filter(function (c) { return c.systemPrompt && c.systemPrompt.trim(); }).length;
+    if (state.global.systemPrompt && state.global.systemPrompt.trim()) active += 1;
+    $("counter").textContent = active + " active · " + (state.combos.length + 1) + " targets";
+  }
+
+  function save(scope, comboId, prompt, mode, row) {
+    var body = { scope: scope, systemPrompt: prompt, injectMode: mode };
+    if (scope === "combo") body.comboId = comboId;
+    var btns = row ? row.querySelectorAll("button") : [$("globalSave")];
+    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
+
+    fetch("/v1/prompt-inject/set", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    }).then(function (r) {
+      if (r.status === 401) { location.href = "/login"; throw new Error("unauthorized"); }
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+        return j;
+      });
+    }).then(function () {
+      Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+      if (scope === "global") {
+        state.global.systemPrompt = prompt;
+        state.global.injectMode = mode;
+        renderGlobal();
+      } else {
+        var c = state.combos.filter(function (x) { return x.comboId === comboId; })[0];
+        if (c) { c.systemPrompt = prompt; c.injectMode = mode; }
+        renderCombos();
+        var reopened = $("comboList").querySelector('.combo-row[data-i="' +
+          state.combos.findIndex(function (x) { return x.comboId === comboId; }) + '"]');
+        if (reopened) reopened.classList.add("open");
+      }
+      updateCounter();
+      toast(prompt.trim() ? "Saved · " + (scope === "global" ? "global" : comboId) : "Injection off · " + (scope === "global" ? "global" : comboId));
+      fitFrame();
+    }).catch(function (err) {
+      if (err && err.message === "unauthorized") return;
+      toast("Failed: " + err.message, true);
+      Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+    });
+  }
+
+  function load() {
+    fetch("/v1/prompt-inject", { credentials: "same-origin" })
+      .then(function (r) {
+        if (r.status === 401) { location.href = "/login"; throw new Error("unauthorized"); }
+        return r.json();
+      })
+      .then(function (j) {
+        var entries = j.entries || [];
+        var g = entries.filter(function (e) { return e.scope === "global"; })[0];
+        state.global = { systemPrompt: (g && g.systemPrompt) || "", injectMode: (g && g.injectMode) || "prepend" };
+        state.combos = entries.filter(function (e) { return e.scope === "combo"; });
+        renderGlobal();
+        renderCombos();
+        updateCounter();
+        fitFrame();
+      })
+      .catch(function (err) {
+        if (err && err.message === "unauthorized") return;
+        $("comboList").innerHTML = '<div class="empty">Failed to load: ' + esc(err.message) + '</div>';
+        $("counter").textContent = "error";
+      });
+    setTimeout(fitFrame, 60);
+  }
+
+  $("globalPrompt").addEventListener("input", function () { updateGlobalPreview(); });
+  $("globalSave").addEventListener("click", function () {
+    save("global", null, $("globalPrompt").value, globalDD.get(), null);
+  });
+  $("globalClear").addEventListener("click", function () {
+    $("globalPrompt").value = "";
+    save("global", null, "", globalDD.get(), null);
+  });
+
+  load();
+})();
+</script>
+</body>
+</html>

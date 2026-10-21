@@ -3,8 +3,10 @@ package routerapi
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/providers"
 )
 
 type ProviderConfig struct {
@@ -1529,6 +1532,71 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_m
 	return antigravityModels, nil
 }
 
+// sqlConn is satisfied by both *sql.DB and *sql.Tx.
+type sqlConn interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+// upstreamContextLength picks the first non-zero context window a provider chose
+// to report; providers disagree on the field name, and some nest it under
+// top_provider (OpenRouter). 0 means "upstream said nothing".
+func upstreamContextLength(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// upsertDiscoveredModel records a model found by a provider /models scan.
+// upstreamCtx is what the provider reported; when it is 0 the model-family
+// heuristic fills in (1M for gemini/deepseek-v4, 200k for claude, ...).
+//
+// Provenance is stored in context_source so a guess can be told apart from a
+// provider fact:
+//   - "upstream"  the provider reported the number (wins, even if smaller)
+//   - "heuristic" derived from the model-id family table (never downgrades)
+//   - "manual"    set by an operator through the override API (never touched)
+func upsertDiscoveredModel(ex sqlConn, providerID, modelID string, upstreamCtx int, now int64) {
+	if modelID == "" {
+		return
+	}
+
+	ctxLen, source := upstreamCtx, "upstream"
+	if ctxLen <= 0 {
+		ctxLen, _ = providers.GetModelTokenLimits(modelID)
+		source = "heuristic"
+		log.Printf("[models] %s/%s: provider reported no context window, guessing %d from the family table", providerID, modelID, ctxLen)
+	}
+
+	var prevCtx int
+	var prevSource string
+	err := ex.QueryRow(`SELECT COALESCE(context_length, 0), COALESCE(context_source, '')
+		FROM provider_models WHERE provider_id = ? AND model_id = ?`, providerID, modelID).Scan(&prevCtx, &prevSource)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Fresh row, keep what we worked out.
+	case prevSource == "manual":
+		// An operator override outranks both a scan and the family table.
+		ctxLen, source = prevCtx, "manual"
+	case source != "upstream" && prevCtx > ctxLen:
+		// Guessing must not shrink a window that was already known to be larger.
+		ctxLen, source = prevCtx, prevSource
+	}
+
+	_, _ = ex.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, context_source, is_custom, created_at)
+		VALUES (?, ?, ?, ?, 0, ?)
+		ON CONFLICT(provider_id, model_id) DO UPDATE SET
+			is_active = COALESCE(provider_models.is_active, 1),
+			context_length = excluded.context_length,
+			context_source = excluded.context_source,
+			created_at = excluded.created_at`,
+		providerID, modelID, ctxLen, source, now)
+}
+
 // ScanAndSyncProviderModels dynamically fetches models from provider /v1/models endpoint using the connected API key/tokens
 func (h *RouterAPIHandler) ScanAndSyncProviderModels(providerID string) ([]map[string]any, error) {
 	providerID = strings.ToLower(providerID)
@@ -1667,10 +1735,20 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 
 	var res struct {
 		Data []struct {
-			ID      string `json:"id"`
-			Object  string `json:"object"`
-			Created int64  `json:"created"`
-			OwnedBy string `json:"owned_by"`
+			ID               string `json:"id"`
+			Object           string `json:"object"`
+			Created          int64  `json:"created"`
+			OwnedBy          string `json:"owned_by"`
+			ContextLength    int    `json:"context_length"`
+			ContextWindow    int    `json:"context_window"`
+			MaxContextLength int    `json:"max_context_length"`
+			MaxModelLen      int    `json:"max_model_len"`
+			MaxInputTokens   int    `json:"max_input_tokens"`
+			MaxOutputTokens  int    `json:"max_output_tokens"`
+			TopProvider      struct {
+				ContextLength       int `json:"context_length"`
+				MaxCompletionTokens int `json:"max_completion_tokens"`
+			} `json:"top_provider"`
 		} `json:"data"`
 		Models []struct {
 			ID          string `json:"id"`
@@ -1699,10 +1777,10 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 				"id":     mID,
 				"object": "model",
 			})
-			_, _ = h.db.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
-				VALUES (?, ?, 128000, 0, ?)
-				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
-				providerID, mID, now)
+			upsertDiscoveredModel(h.db, providerID, mID, upstreamContextLength(
+				item.ContextLength, item.ContextWindow, item.MaxContextLength,
+				item.MaxModelLen, item.MaxInputTokens, item.TopProvider.ContextLength,
+			), now)
 		}
 	} else if len(res.Models) > 0 {
 		for _, item := range res.Models {
@@ -1717,10 +1795,7 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 				"id":     mID,
 				"object": "model",
 			})
-			_, _ = h.db.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
-				VALUES (?, ?, 128000, 0, ?)
-				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
-				providerID, mID, now)
+			upsertDiscoveredModel(h.db, providerID, mID, 0, now)
 		}
 	}
 
@@ -1738,10 +1813,7 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 		for _, m := range scanned {
 			mid, _ := m["id"].(string)
 			validModelIDs[mid] = true
-			_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
-				VALUES (?, ?, 128000, 0, ?)
-				ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
-				providerID, mid, now)
+			upsertDiscoveredModel(tx, providerID, mid, 0, now)
 		}
 
 		// Prune stale models
@@ -1770,7 +1842,8 @@ ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_a
 }
 
 func (h *RouterAPIHandler) getSyncedProviderModels(providerID string) ([]map[string]any, error) {
-	rows, err := h.db.Query(`SELECT model_id, COALESCE(is_active, 1) FROM provider_models WHERE provider_id = ? ORDER BY model_id ASC`, providerID)
+	rows, err := h.db.Query(`SELECT model_id, COALESCE(is_active, 1), COALESCE(context_length, 0), COALESCE(context_source, '')
+		FROM provider_models WHERE provider_id = ? ORDER BY model_id ASC`, providerID)
 	if err != nil {
 		return nil, err
 	}
@@ -1780,11 +1853,18 @@ func (h *RouterAPIHandler) getSyncedProviderModels(providerID string) ([]map[str
 	for rows.Next() {
 		var mid string
 		var isActive int
-		if err := rows.Scan(&mid, &isActive); err == nil {
+		var ctxLen int
+		var ctxSource string
+		if err := rows.Scan(&mid, &isActive, &ctxLen, &ctxSource); err == nil {
+			if ctxSource == "" {
+				ctxSource = "heuristic"
+			}
 			models = append(models, map[string]any{
-				"id":       mid,
-				"object":   "model",
-				"isActive": isActive == 1,
+				"id":            mid,
+				"object":        "model",
+				"isActive":      isActive == 1,
+				"contextLength": ctxLen,
+				"contextSource": ctxSource,
 			})
 		}
 	}
@@ -1901,6 +1981,87 @@ func (h *RouterAPIHandler) HandleProviderModelsList(w http.ResponseWriter, r *ht
 		"providerId": providerID,
 		"models":     matchedModels,
 		"total":      len(matchedModels),
+	})
+}
+
+// POST /v1/providers/{providerId}/models/context
+// Pins a context window for one model. contextLength 0 clears the override and
+// falls back to the family table. Manual values are never overwritten by a
+// provider rescan, which is what makes them useful for models the family table
+// does not know yet.
+func (h *RouterAPIHandler) HandleProviderModelContext(w http.ResponseWriter, r *http.Request) {
+	providerID := strings.ToLower(chi.URLParam(r, "providerId"))
+
+	var body struct {
+		ModelID       string `json:"modelId"`
+		ContextLength *int   `json:"contextLength"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid payload")
+		return
+	}
+
+	modelID := body.ModelID
+	if modelID == "" {
+		modelID = chi.URLParam(r, "modelId")
+	}
+	if unescaped, err := url.PathUnescape(modelID); err == nil {
+		modelID = unescaped
+	}
+	if modelID == "" {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "modelId is required")
+		return
+	}
+	if body.ContextLength == nil {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "contextLength is required")
+		return
+	}
+
+	now := time.Now().UnixMilli()
+	ctxLen := *body.ContextLength
+	source := "manual"
+
+	switch {
+	case ctxLen == 0:
+		// Reset: back to the family table.
+		ctxLen, _ = providers.GetModelTokenLimits(modelID)
+		source = "heuristic"
+		_, err := h.db.Exec(`UPDATE provider_models SET context_length = ?, context_source = ?
+			WHERE provider_id = ? AND model_id = ?`, ctxLen, source, providerID, modelID)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to reset context window: "+err.Error())
+			return
+		}
+	case ctxLen < 1024 || ctxLen > 100000000:
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, "contextLength must be between 1024 and 100000000 (0 resets to auto)")
+		return
+	}
+
+	if source == "manual" {
+		res, err := h.db.Exec(`UPDATE provider_models SET context_length = ?, context_source = 'manual'
+			WHERE provider_id = ? AND model_id = ?`, ctxLen, providerID, modelID)
+		if err != nil {
+			handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to set context window: "+err.Error())
+			return
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			_, err = h.db.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, context_source, is_custom, created_at)
+				VALUES (?, ?, ?, 'manual', 1, ?)`, providerID, modelID, ctxLen, now)
+			if err != nil {
+				handlerutil.WriteJSONError(w, http.StatusInternalServerError, "Failed to store context window: "+err.Error())
+				return
+			}
+		}
+	}
+
+	_, maxOut := providers.GetModelTokenLimits(modelID)
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
+		"success":             true,
+		"providerId":          providerID,
+		"modelId":             modelID,
+		"contextLength":       ctxLen,
+		"contextSource":       source,
+		"maxCompletionTokens": maxOut,
 	})
 }
 

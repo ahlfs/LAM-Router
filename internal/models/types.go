@@ -46,6 +46,20 @@ type ProxyPool struct {
 	UpdatedAt  string  `json:"updatedAt"`
 }
 
+// Pseudo identity recorded for requests made from the admin dashboard, which
+// authenticates with a session cookie rather than an API key.
+const (
+	AdminSessionKeyID   = "admin_session"
+	AdminSessionKeyName = "Admin Dashboard Session"
+
+	// Rows that carry no api_keys record still need a readable label in the
+	// audit trail: a request sent with no key at all, and one whose key is no
+	// longer present in api_keys.
+	NoClientKeyID        = "none"
+	NoClientKeyName      = "No API Key"
+	UnknownClientKeyName = "Unknown API Key"
+)
+
 // APIKey represents a client-facing authorization key.
 type APIKey struct {
 	ID          string  `json:"id"`
@@ -63,13 +77,15 @@ type APIKey struct {
 
 // Combo represents a multi-model routing combinated alias.
 type Combo struct {
-	ID        string  `json:"id"`
-	Name      string  `json:"name"`
-	Kind      *string `json:"kind,omitempty"`
-	Models    string  `json:"models"`    // JSON string representing model selection details
-	Strategy  string  `json:"strategy"`  // routing strategy: "fallback", "round-robin", "capacity", "fusion"
-	CreatedAt string  `json:"createdAt"`
-	UpdatedAt string  `json:"updatedAt"`
+	ID           string  `json:"id"`
+	Name         string  `json:"name"`
+	Kind         *string `json:"kind,omitempty"`
+	Models       string  `json:"models"`   // JSON string representing model selection details
+	Strategy     string  `json:"strategy"` // routing strategy: "fallback", "round-robin", "capacity", "fusion"
+	SystemPrompt string  `json:"systemPrompt,omitempty"` // injected before every request on this combo
+	InjectMode   string  `json:"injectMode,omitempty"`   // "prepend" | "append" | "replace" | "hidden_user"
+	CreatedAt    string  `json:"createdAt"`
+	UpdatedAt    string  `json:"updatedAt"`
 }
 
 // KV represents a scoped key-value store entry.

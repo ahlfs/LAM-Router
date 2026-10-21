@@ -501,6 +501,7 @@ func TranslateGeminiResponseToOpenAI(geminiBody []byte) ([]byte, *OpenAIUsage, e
 		"usage": map[string]interface{}{
 			"prompt_tokens":     inputTokens,
 			"completion_tokens": outputTokens,
+			"total_tokens":      inputTokens + outputTokens,
 			"cached_tokens":     cachedTokens,
 			"completion_tokens_details": map[string]interface{}{
 				"reasoning_tokens": reasoningTokens,

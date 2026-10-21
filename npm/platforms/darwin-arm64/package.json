@@ -1,6 +1,6 @@
 {
   "name": "lam-router-darwin-arm64",
-  "version": "2.0.0",
+  "version": "2.2.0",
   "description": "LAM-Router binary for macOS ARM64 (Apple Silicon)",
   "os": [
     "darwin"

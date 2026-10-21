@@ -145,6 +145,12 @@ func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
 	r.HandleFunc("/health", healthHandler)
 	r.HandleFunc("/healthz", healthHandler)
 
+	// Prompt-inject admin UI. `/prompt-inject` is intentionally NOT registered: the SPA
+	// fallback serves index.html so the dashboard boots with its sidebar, and the patched
+	// notFound component frames the page below. Direct hits and sidebar clicks then look
+	// identical. `/raw` is the framed document itself.
+	r.HandleFunc("/prompt-inject/raw", webdist.ServePromptInject)
+
 	r.HandleFunc("/api/hello", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
 		w.WriteHeader(http.StatusOK)
