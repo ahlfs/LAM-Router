@@ -255,6 +255,7 @@ server {
 | `UPDATE_CHECK` | `true` | Check npm for a newer release shortly after startup and log it |
 | `INJECTION_GUARD_DISABLED` | `false` | Disable the prompt-injection detector |
 | `HTTP_PROXY` / `HTTPS_PROXY` | *(empty)* | Outbound proxy used for upstream provider calls |
+| `LAMROUTER_LIVE_QUOTA_TTL` | `20` | Seconds a live Antigravity quota probe counts as fresh on the Quotas & Limits page: within it the page is answered from cache, past it cached quotas are served instantly and refreshed in the background (stale-while-revalidate, ceiling 10 minutes). `0` disables the cache so every request probes upstream |
 
 A `.env` file is also read at startup, in this order: `./.env`, `~/LAM-Router/.env`, `~/.lam-router/.env`, `~/.hermes/.env`. Real environment variables always win over `.env` values. The three token savers can also be toggled per-run with `--rtk`, `--caveman`, `--ponytail`, and the injection guard with `--no-injection-guard`.
 

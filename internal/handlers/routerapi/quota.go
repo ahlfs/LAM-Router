@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"lamrouter/internal/handlerutil"
@@ -200,8 +201,12 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 						}
 
 						pctValue := int(b.RemainingFraction * 100)
-						if pctValue > 100 { pctValue = 100 }
-						if pctValue < 0 { pctValue = 0 }
+						if pctValue > 100 {
+							pctValue = 100
+						}
+						if pctValue < 0 {
+							pctValue = 0
+						}
 
 						limit := 1000
 						if !is5h {
@@ -210,7 +215,11 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 						used := int(float64(limit) * (1.0 - b.RemainingFraction))
 
 						status := "ok"
-						if pctValue <= 5 { status = "exhausted" } else if pctValue <= 20 { status = "warning" }
+						if pctValue <= 5 {
+							status = "exhausted"
+						} else if pctValue <= 20 {
+							status = "warning"
+						}
 
 						quotas = append(quotas, LiveModelQuotaItem{
 							Name:            name,
@@ -263,7 +272,7 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	}
 
 	var quotas []LiveModelQuotaItem
-	
+
 	type modelQuotaDetail struct {
 		modelID     string
 		displayName string
@@ -377,8 +386,12 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 
 		// Calculate 5-hour remaining capacity percentage proportionally (e.g. 2h 1m out of ~5h = ~35%)
 		gemini5hPct = int((float64(gemini5hDuration) / float64(5*time.Hour)) * 87.0)
-		if gemini5hPct > 100 { gemini5hPct = 100 }
-		if gemini5hPct < 0 { gemini5hPct = 0 }
+		if gemini5hPct > 100 {
+			gemini5hPct = 100
+		}
+		if gemini5hPct < 0 {
+			gemini5hPct = 0
+		}
 	} else {
 		geminiWeeklyDuration = 24 * time.Hour
 		geminiWeeklyResetStr = "24h 0m"
@@ -390,10 +403,18 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	}
 
 	// 1. Gemini Models · Weekly Limit Remaining
-	if geminiWeeklyPct > 100 { geminiWeeklyPct = 100 }
-	if geminiWeeklyPct < 0 { geminiWeeklyPct = 0 }
+	if geminiWeeklyPct > 100 {
+		geminiWeeklyPct = 100
+	}
+	if geminiWeeklyPct < 0 {
+		geminiWeeklyPct = 0
+	}
 	statusGeminiWeekly := "ok"
-	if geminiWeeklyPct <= 5 { statusGeminiWeekly = "exhausted" } else if geminiWeeklyPct <= 20 { statusGeminiWeekly = "warning" }
+	if geminiWeeklyPct <= 5 {
+		statusGeminiWeekly = "exhausted"
+	} else if geminiWeeklyPct <= 20 {
+		statusGeminiWeekly = "warning"
+	}
 
 	quotas = append(quotas, LiveModelQuotaItem{
 		Name:            "Gemini Models · Weekly Limit Remaining",
@@ -408,7 +429,11 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 
 	// 2. Gemini Models · Five Hour Limit Remaining
 	statusGeminiDaily := "ok"
-	if gemini5hPct <= 5 { statusGeminiDaily = "exhausted" } else if gemini5hPct <= 20 { statusGeminiDaily = "warning" }
+	if gemini5hPct <= 5 {
+		statusGeminiDaily = "exhausted"
+	} else if gemini5hPct <= 20 {
+		statusGeminiDaily = "warning"
+	}
 
 	quotas = append(quotas, LiveModelQuotaItem{
 		Name:            "Gemini Models · Five Hour Limit Remaining",
@@ -426,10 +451,18 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 	if claudeWeeklyModel.resetTime == "" && claudeDailyModel.resetTime != "" {
 		pctClaudeWeekly = int(claudeDailyModel.fraction * 100)
 	}
-	if pctClaudeWeekly > 100 { pctClaudeWeekly = 100 }
-	if pctClaudeWeekly < 0 { pctClaudeWeekly = 0 }
+	if pctClaudeWeekly > 100 {
+		pctClaudeWeekly = 100
+	}
+	if pctClaudeWeekly < 0 {
+		pctClaudeWeekly = 0
+	}
 	statusClaudeWeekly := "ok"
-	if pctClaudeWeekly <= 5 { statusClaudeWeekly = "exhausted" } else if pctClaudeWeekly <= 20 { statusClaudeWeekly = "warning" }
+	if pctClaudeWeekly <= 5 {
+		statusClaudeWeekly = "exhausted"
+	} else if pctClaudeWeekly <= 20 {
+		statusClaudeWeekly = "warning"
+	}
 
 	claudeWeeklyResetDuration := claudeWeeklyModel.duration
 	if claudeWeeklyResetDuration <= 0 && claudeDailyModel.duration > 0 {
@@ -449,10 +482,18 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 
 	// 4. Claude and GPT models · Five Hour Limit Remaining
 	pctClaudeDaily := int(claudeDailyModel.fraction * 100)
-	if pctClaudeDaily > 100 { pctClaudeDaily = 100 }
-	if pctClaudeDaily < 0 { pctClaudeDaily = 0 }
+	if pctClaudeDaily > 100 {
+		pctClaudeDaily = 100
+	}
+	if pctClaudeDaily < 0 {
+		pctClaudeDaily = 0
+	}
 	statusClaudeDaily := "ok"
-	if pctClaudeDaily <= 5 { statusClaudeDaily = "exhausted" } else if pctClaudeDaily <= 20 { statusClaudeDaily = "warning" }
+	if pctClaudeDaily <= 5 {
+		statusClaudeDaily = "exhausted"
+	} else if pctClaudeDaily <= 20 {
+		statusClaudeDaily = "warning"
+	}
 
 	claudeDailyResetDuration := claudeDailyModel.duration
 	if claudeDailyResetDuration <= 0 {
@@ -533,8 +574,15 @@ func (h *RouterAPIHandler) getProviderUsageMetrics(providerID string) []Provider
 func (h *RouterAPIHandler) HandleQuotaGet(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	savedConns, _ := h.getAllProviders()
-	var providers []map[string]any
 
+	type accountMeta struct {
+		conn          *ProviderConfig
+		accountName   string
+		token         string
+		isAntigravity bool
+	}
+
+	accounts := make([]accountMeta, 0, len(savedConns))
 	for _, c := range savedConns {
 		providerKey := strings.ToLower(c.ProviderID)
 		if providerKey == "" {
@@ -552,61 +600,103 @@ func (h *RouterAPIHandler) HandleQuotaGet(w http.ResponseWriter, r *http.Request
 			token = *c.APIKey
 		}
 
-		isAntigravity := strings.Contains(providerKey, "antigravity") || strings.Contains(strings.ToLower(c.ID), "antigravity")
+		accounts = append(accounts, accountMeta{
+			conn:          c,
+			accountName:   accountName,
+			token:         token,
+			isAntigravity: strings.Contains(providerKey, "antigravity") || strings.Contains(strings.ToLower(c.ID), "antigravity"),
+		})
+	}
 
-		if isAntigravity && token != "" {
-			liveQuotas, err := h.fetchAntigravityLiveQuotas(ctx, token)
-			if err != nil {
-				log.Warn("quota", "fetchAntigravityLiveQuotas failed, attempting refresh", "error", err)
-				if c.RefreshToken != nil && *c.RefreshToken != "" {
-					newAccessToken, refErr := h.refreshGoogleOAuthToken(*c.RefreshToken)
-					if refErr == nil && newAccessToken != "" {
-						token = newAccessToken
-						now := time.Now().UnixMilli()
-						_, _ = h.db.Exec("UPDATE providers SET access_token = ?, last_refreshed_at = ? WHERE id = ?", newAccessToken, now, c.ID)
-						liveQuotas, _ = h.fetchAntigravityLiveQuotas(ctx, newAccessToken)
-					}
-				}
-			}
+	// Probe live setiap akun antigravity secara paralel dan lewat cache. Dulu
+	// loop ini berurutan dan tanpa cache, jadi latensi satu halaman = jumlah akun
+	// x latensi upstream, dibayar ulang pada setiap refetch berkala dari SPA.
+	probes := make([]liveQuotaProbe, len(accounts))
+	var wg sync.WaitGroup
+	slots := make(chan struct{}, liveQuotaProbeConcurrency)
 
-			if len(liveQuotas) > 0 {
-				providers = append(providers, map[string]any{
-					"id":           c.ID,
-					"name":         c.Name,
-					"account":      accountName,
+	for i := range accounts {
+		if !accounts[i].isAntigravity || accounts[i].token == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(a accountMeta, idx int) {
+			defer wg.Done()
+
+			slots <- struct{}{}
+			defer func() { <-slots }()
+
+			probes[idx] = h.probeLiveQuotaForAccount(ctx, a.conn, a.token)
+		}(accounts[i], i)
+	}
+	wg.Wait()
+
+	// Metrik pemakaian dihitung sekali per provider_id: sebelumnya tiap akun
+	// antigravity menjalankan query GROUP BY yang sama berulang kali.
+	metricsMemo := map[string][]ProviderUsageMetric{}
+	metricsFor := func(providerID string) []ProviderUsageMetric {
+		if m, ok := metricsMemo[providerID]; ok {
+			return m
+		}
+		m := h.getProviderUsageMetrics(providerID)
+		metricsMemo[providerID] = m
+		return m
+	}
+
+	providers := make([]map[string]any, 0, len(accounts))
+	for i, a := range accounts {
+		if a.isAntigravity {
+			if p := probes[i]; len(p.quotas) > 0 {
+				entry := map[string]any{
+					"id":           a.conn.ID,
+					"name":         a.conn.Name,
+					"account":      a.accountName,
 					"provider":     "Antigravity",
 					"providerId":   "antigravity",
-					"category":     c.Category,
-					"enabled":      c.Enabled,
+					"category":     a.conn.Category,
+					"enabled":      a.conn.Enabled,
 					"quotaType":    "live_provider_quota",
-					"totalQuotas":  len(liveQuotas),
+					"totalQuotas":  len(p.quotas),
 					"status":       "healthy",
-					"quotas":       liveQuotas,
-					"usageMetrics": h.getProviderUsageMetrics("antigravity"),
-				})
+					"quotas":       p.quotas,
+					"usageMetrics": metricsFor("antigravity"),
+				}
+				if p.cached {
+					entry["cached"] = true
+					entry["ageMs"] = p.age.Milliseconds()
+				}
+				if p.stale {
+					entry["stale"] = true
+					entry["ageMs"] = p.age.Milliseconds()
+				}
+				if p.revalidating {
+					entry["revalidating"] = true
+				}
+				if p.failed {
+					// Probe terakhir gagal: angka yang tampil memang lama, dan itu
+					// jujur ditandai alih-alih mengaku sehat.
+					entry["status"] = "stale"
+				}
+				providers = append(providers, entry)
 				continue
 			}
 		}
 
-		// Standard fallback for other providers
-		usageMetrics := h.getProviderUsageMetrics(c.ProviderID)
+		// Fallback standar untuk provider lain, atau akun yang probe-nya gagal
+		// tanpa hasil lama apa pun di cache.
 		providers = append(providers, map[string]any{
-			"id":           c.ID,
-			"name":         c.Name,
-			"account":      accountName,
-			"provider":     c.Name,
-			"providerId":   c.ProviderID,
-			"category":     c.Category,
-			"enabled":      c.Enabled,
+			"id":           a.conn.ID,
+			"name":         a.conn.Name,
+			"account":      a.accountName,
+			"provider":     a.conn.Name,
+			"providerId":   a.conn.ProviderID,
+			"category":     a.conn.Category,
+			"enabled":      a.conn.Enabled,
 			"quotaType":    "usage_logged",
 			"status":       "healthy",
 			"quotas":       []map[string]any{},
-			"usageMetrics": usageMetrics,
+			"usageMetrics": metricsFor(a.conn.ProviderID),
 		})
-	}
-
-	if providers == nil {
-		providers = []map[string]any{}
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
