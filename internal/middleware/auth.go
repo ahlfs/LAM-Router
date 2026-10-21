@@ -26,12 +26,17 @@ func logAuthError(repo *db.Repo, apiKeyID, errMsg string, statusCode int) {
 	if apiKeyID == "" {
 		apiKeyID = "unknown"
 	}
+	// provider_id names the stage that refused the request, but there is no
+	// model to record: no routing happened. Filling the model column with a
+	// placeholder is what made the dashboard list "Auth" as a model, so it stays
+	// empty and the read paths keep older rows that stored "auth" in both
+	// columns out of the model and provider breakdowns.
 	_, _ = rawDB.Exec(`
 		INSERT OR REPLACE INTO request_logs (
 			id, api_key_id, provider_id, model, prompt_tokens, completion_tokens, total_tokens,
 			status_code, latency_ms, created_at, cached_tokens, cache_creation_tokens, compression_tokens, reasoning_tokens, estimated_cost,
 			fallback_occurred, fallback_reason
-		) VALUES (?, ?, 'auth', 'auth', 0, 0, 0, ?, 0, ?, 0, 0, 0, 0, 0, 0, ?)
+		) VALUES (?, ?, 'auth', '', 0, 0, 0, ?, 0, ?, 0, 0, 0, 0, 0, 0, ?)
 	`, reqLogID, apiKeyID, statusCode, nowMillis, errMsg)
 }
 
