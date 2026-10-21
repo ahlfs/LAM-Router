@@ -228,10 +228,7 @@ func TranslateOpenAIToGemini(openaiBody []byte) ([]byte, error) {
 
 			// Tool calls → functionCall parts
 			for _, tc := range msg.ToolCalls {
-				var args map[string]any
-				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-					args = make(map[string]any)
-				}
+				args := normalizeToolArgs(tc.Function.Arguments)
 				ts := extractThoughtSig(tc.ID)
 				if ts == "" {
 					ts = DefaultThinkingSignature
@@ -427,10 +424,7 @@ func TranslateGeminiResponseToOpenAI(geminiBody []byte) ([]byte, *OpenAIUsage, e
 				reasoningContent += part.Text
 			}
 			if part.FunctionCall != nil {
-				args, err := json.Marshal(part.FunctionCall.Args)
-				if err != nil {
-					args = []byte("{}")
-				}
+				args := marshalToolArgs(part.FunctionCall.Args)
 				fnName := UncloakToolName(part.FunctionCall.Name, nil)
 				id := part.FunctionCall.ID
 				if id == "" {
@@ -587,10 +581,7 @@ func TranslateGeminiChunkToOpenAI(chunk []byte, state *GeminiStreamState) ([]byt
 					delta["reasoning_content"] = part.Text
 				}
 				if part.FunctionCall != nil {
-					args, err := json.Marshal(part.FunctionCall.Args)
-					if err != nil {
-						args = []byte("{}")
-					}
+					args := marshalToolArgs(part.FunctionCall.Args)
 					fnName := UncloakToolName(part.FunctionCall.Name, nil)
 					id := part.FunctionCall.ID
 					if id == "" {

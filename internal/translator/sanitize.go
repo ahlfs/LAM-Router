@@ -9,8 +9,12 @@ import (
 
 func sanitizeToolArgs(toolName, argsJSON string) string {
 	var args map[string]any
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return argsJSON
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil || args == nil {
+		// Argumen kosong, "null", atau bukan objek JSON tidak boleh diteruskan
+		// apa adanya: "null" menghasilkan tool_use tanpa input dan upstream
+		// Claude (Vertex) menolak seluruh request dengan 400
+		// "messages.N.content.X.tool_use.input: Field required".
+		return "{}"
 	}
 
 	name := toolName
@@ -27,6 +31,36 @@ func sanitizeToolArgs(toolName, argsJSON string) string {
 		return argsJSON
 	}
 	return string(sanitized)
+}
+
+// normalizeToolArgs mengubah string argumen tool-call menjadi map yang tak
+// pernah nil. json.Unmarshal terhadap literal "null" BERHASIL tanpa error
+// namun menyisakan map nil; karena GeminiFunctionCall.Args tidak ber-omitempty,
+// nilai nil itu keluar sebagai "args":null dan upstream Claude (Vertex)
+// menolaknya dengan 400 "messages.N.content.X.tool_use.input: Field required".
+func normalizeToolArgs(argsJSON string) map[string]any {
+	if strings.TrimSpace(argsJSON) == "" {
+		return map[string]any{}
+	}
+	var args map[string]any
+	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil || args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
+// marshalToolArgs menyerialkan argumen tool-call dengan jaminan hasilnya objek
+// JSON: map nil (mis. functionCall dari upstream yang tak membawa args) menjadi
+// {} — bukan null.
+func marshalToolArgs(args map[string]any) []byte {
+	if args == nil {
+		args = map[string]any{}
+	}
+	out, err := json.Marshal(args)
+	if err != nil {
+		return []byte("{}")
+	}
+	return out
 }
 
 func sanitizeReadArgs(args map[string]any) {

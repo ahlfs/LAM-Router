@@ -52,10 +52,20 @@ func TestSanitizeToolArgs(t *testing.T) {
 		}
 	})
 
-	t.Run("Invalid JSON returns raw", func(t *testing.T) {
+	// Argumen tak sah tidak lagi diteruskan apa adanya: string mentah yang
+	// bukan objek JSON (atau "null") membuat blok tool_use tanpa input dan
+	// upstream Claude menolak seluruh request dengan 400.
+	t.Run("Invalid JSON becomes empty object", func(t *testing.T) {
 		got := sanitizeToolArgs("Read", `not-json`)
-		if got != "not-json" {
-			t.Errorf("expected raw, got %s", got)
+		if got != "{}" {
+			t.Errorf("expected {}, got %s", got)
+		}
+	})
+
+	t.Run("JSON null becomes empty object", func(t *testing.T) {
+		got := sanitizeToolArgs("todo_list", `null`)
+		if got != "{}" {
+			t.Errorf("expected {}, got %s", got)
 		}
 	})
 

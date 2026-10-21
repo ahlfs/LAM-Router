@@ -433,6 +433,7 @@ func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte,
 		} else {
 			stripAntigravityIDs(cleanedReq)
 		}
+		normalizeToolParts(cleanedReq)
 		if cloakedBytes, err := json.Marshal(cleanedReq); err == nil {
 			geminiBody = cloakedBytes
 		}
@@ -451,6 +452,27 @@ func WrapForAntigravity(geminiBody []byte, projectID, modelName string) ([]byte,
 		return nil, fmt.Errorf("marshal antigravity wrapper: %w", err)
 	}
 	return out, nil
+}
+
+// normalizeToolParts mengisi Args pada part functionCall (dan Response pada
+// functionResponse) yang kosong supaya body yang dikirim ke antigravity tidak
+// pernah membawa "args":null. Upstream Claude/Vertex menerjemahkan functionCall
+// menjadi blok tool_use dan menolak seluruh request bila blok itu tanpa input.
+func normalizeToolParts(req *GeminiRequest) {
+	if req == nil {
+		return
+	}
+	for ci := range req.Contents {
+		parts := req.Contents[ci].Parts
+		for pi := range parts {
+			if parts[pi].FunctionCall != nil && parts[pi].FunctionCall.Args == nil {
+				parts[pi].FunctionCall.Args = map[string]any{}
+			}
+			if parts[pi].FunctionResponse != nil && parts[pi].FunctionResponse.Response == nil {
+				parts[pi].FunctionResponse.Response = &GeminiFuncResp{Result: map[string]any{}}
+			}
+		}
+	}
 }
 
 // injectThinkingConfig merges thinkingConfig into generationConfig of a Gemini request.
