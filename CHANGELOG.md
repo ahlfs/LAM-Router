@@ -1,5 +1,59 @@
 # Changelog
 
+## [v2.1.0] — 2026-10-21
+
+### Sorotan
+- **fix(translator): tool call tanpa argumen tidak lagi menjadi `null`, dan riwayat yang sudah
+  teracuni tidak lagi memicu 400 pada model Claude.** Akarnya: `json.Unmarshal` terhadap literal
+  `null` berhasil tanpa error namun menyisakan map `nil`, lalu `json.Marshal` atas map `nil`
+  menghasilkan `"null"` — juga tanpa error — sehingga penjaga `if err != nil` tak pernah aktif.
+  Akibatnya `functionCall` berjalan keluar sebagai `"args":null` pada request ke antigravity dan
+  sebagai `arguments:"null"` pada respons ke klien; klien menyimpannya sebagai riwayat, dan saat
+  model diganti ke Claude di sesi yang sama Vertex menolak seluruh request dengan
+  `messages.N.content.X.tool_use.input: Field required`. Kini argumen kosong/`null`/bukan objek
+  dinormalkan menjadi `{}` di sisi request, di kedua jalur respons (non-stream dan stream), di
+  penjaga terakhir `WrapForAntigravity`, serta di `sanitizeToolArgs` untuk arah keluar format
+  Claude. Sesi baru selalu tampak normal karena riwayatnya belum memuat tool call tersebut.
+- **fix(api): permintaan yang ditolak middleware auth tidak lagi dihitung sebagai model.**
+  Baris log untuk permintaan yang ditolak kini menyimpan `provider_id='auth'` tanpa model, dan
+  statistik mengeluarkannya dari rincian per model dan per provider lalu melaporkannya lewat blok
+  `blocked` (`{total, byStatus}`). Sebelumnya placeholder itu muncul sebagai model bernama "Auth"
+  dengan 0 token di kartu Usage by model dan Provider Distribution.
+
+### Ditambahkan
+- Kartu **Provider Distribution** di dashboard: distribusi token masuk/keluar, jumlah
+  permintaan, jumlah model, dan pangsa tiap provider - dirender di antara
+  "Model Traffic & Volume" dan "Usage by model".
+- Filter periode pada kartu statistik: Today / 24h / 7D / 30D / 60D / All time, dihitung
+  di server lewat `/v1/logs/stats?period=` (dashboard melakukan polling tiap detik, jadi
+  pemfilteran di klien akan memaksa data mentah ikut terkirim).
+- Setiap baris `byModel` kini membawa `providerId` dan `providerName` asli, plus
+  `byProvider` pada respons statistik.
+- Ikon `web/dist/icons/providers/auth.svg`: id provider `auth` sebelumnya tidak punya
+  ikon sehingga badge-nya jatuh ke inisial "AU".
+
+### Diperbaiki
+- Badai ~104 error konsol pada setiap muat halaman dingin. Akarnya: `index.html` memuat
+  script entry sebagai `index-<hash>.js?v=health1` sementara 48 impor antar-chunk memakai
+  `"./index-<hash>.js"` tanpa query. Identitas modul ES adalah URL penuh, jadi modul entry
+  dievaluasi dua kali, React terduplikasi, dan `createRoot()` berjalan dua kali pada `#root`
+  yang sama (terbukti: kontainer menyimpan dua kunci `__reactContainer$`). Root kedua
+  membersihkan isi kontainer saat mount, root pertama lalu merekonsiliasi node yang sudah
+  lenyap: 51 `removeChild` + 51 `insertBefore` NotFoundError, ditambah React #321 dan #185.
+  URL entry kini disamakan dengan gaya standar Vite (nama berkas sudah content-hash).
+- Label provider palsu: `qa()` meng-hardcode `"gateway"` bila id model tidak memuat `/`,
+  sehingga setiap model tampil dengan badge "GA". Kini memakai provider sebenarnya; model
+  yang dilayani beberapa provider memakai provider pemilik token terbanyak.
+- **fix(api): metrik pemakaian per provider di halaman Quotas & Limits selalu kosong.**
+  `getProviderUsageMetrics` menanyakan kolom `provider` yang tidak ada di `request_logs`,
+  jadi query-nya selalu gagal dan panel "Usage Consumption History" terus menampilkan
+  "No requests logged yet" padahal ada 1047 permintaan tercatat. Kini membaca `provider_id`,
+  mencocokkan nama keluarga provider maupun id kredensial yang membawa akhiran
+  (`antigravity` vs `antigravity-1791105810882`), mengabaikan baris permintaan yang ditolak,
+  dan kegagalan query/scan dicatat ke log alih-alih hilang tanpa jejak.
+  `lastUsedAt` juga dikirim sebagai epoch milidetik (angka) seperti field waktu lain - sebagai
+  string, panel kuota gagal mengurainya lalu menampilkan deretan digit mentah.
+
 ## [v2.0.2] — 2026-10-20
 
 ### Perbaikan tema terang
