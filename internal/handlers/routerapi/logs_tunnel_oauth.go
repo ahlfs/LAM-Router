@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -61,6 +62,12 @@ FROM request_logs`+timeFilter+` ORDER BY created_at DESC LIMIT 100
 		)
 		if err != nil {
 			continue
+		}
+
+		// A request the auth middleware refused has no model at all; the
+		// placeholder some older rows carry must not be served as one.
+		if isRejectedRow(providerID, model) {
+			model = ""
 		}
 
 		logs = append(logs, map[string]any{
@@ -134,6 +141,38 @@ func statsTimeFilter(sinceMs int64) (string, []any) {
 	return " WHERE created_at >= ?", []any{sinceMs}
 }
 
+// joinFilter appends an extra predicate to a WHERE clause produced by
+// statsTimeFilter, so a query can combine the period window with another
+// condition without the two clauses fighting over the WHERE keyword.
+func joinFilter(timeFilter, cond string) string {
+	if timeFilter == "" {
+		return " WHERE " + cond
+	}
+	return timeFilter + " AND " + cond
+}
+
+const (
+	// syntheticAuthID is the provider id the auth middleware stores for a
+	// request it rejected: no provider or model has been resolved at that point,
+	// the status code carries the refusal and the reason lives in
+	// fallback_reason. The literal is repeated from
+	// internal/middleware/auth.go on purpose - this package has to keep
+	// classifying rows written by older builds too.
+	syntheticAuthID = "auth"
+	// syntheticRowCond matches such a rejected request: it either carries no
+	// model (what the current writer stores) or the placeholder "auth" older
+	// builds put in both columns. usageRowCond is the complement.
+	syntheticRowCond = "(provider_id = '" + syntheticAuthID + "' AND (model = '' OR model = '" + syntheticAuthID + "'))"
+	usageRowCond     = " NOT " + syntheticRowCond
+)
+
+// isRejectedRow reports whether a log row records a request the auth middleware
+// refused rather than model usage. It is the row-level twin of
+// syntheticRowCond, for the places where the filtering does not happen in SQL.
+func isRejectedRow(providerID, model string) bool {
+	return providerID == syntheticAuthID && (model == "" || model == syntheticAuthID)
+}
+
 // providerDisplayName turns a provider id recorded in request_logs into the
 // label the dashboard renders next to that provider's icon. The static catalog
 // is used rather than a database lookup because this payload is polled every
@@ -174,6 +213,10 @@ func (h *RouterAPIHandler) HandleLogsStats(w http.ResponseWriter, r *http.Reques
 	periodKey, sinceMs := parseStatsPeriod(statsRequestedPeriod(r), time.Now())
 	timeFilter, timeArgs := statsTimeFilter(sinceMs)
 
+	// Card totals count every row in the window, including requests the auth
+	// middleware rejected before any model was known. Those rows carry no
+	// tokens, so the model and provider breakdowns below exclude them and the
+	// "blocked" block reports the count that separates the two figures.
 	_ = h.db.QueryRow(`
 SELECT 
     COUNT(*), 
@@ -195,7 +238,7 @@ FROM request_logs`+timeFilter,
 	// Fetch byModel breakdown
 	rows, err := h.db.Query(`
 SELECT model, COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0)
-FROM request_logs`+timeFilter+`
+FROM request_logs`+joinFilter(timeFilter, usageRowCond)+`
 GROUP BY model
 ORDER BY COUNT(*) DESC
 LIMIT 20
@@ -232,7 +275,7 @@ LIMIT 20
 	dominantProvider := make(map[string]string)
 	if providerRows, err := h.db.Query(`
 SELECT model, provider_id, COALESCE(SUM(total_tokens), 0) AS tok
-FROM request_logs`+timeFilter+`
+FROM request_logs`+joinFilter(timeFilter, usageRowCond)+`
 GROUP BY model, provider_id
 ORDER BY tok DESC
 `, timeArgs...); err == nil {
@@ -261,7 +304,7 @@ ORDER BY tok DESC
 	byProvider := []map[string]any{}
 	if providerRows, err := h.db.Query(`
 SELECT provider_id, COUNT(*), COALESCE(SUM(total_tokens), 0), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0), COUNT(DISTINCT model), COALESCE(AVG(latency_ms), 0)
-FROM request_logs`+timeFilter+`
+FROM request_logs`+joinFilter(timeFilter, usageRowCond)+`
 GROUP BY provider_id
 ORDER BY SUM(total_tokens) DESC, COUNT(*) DESC
 `, timeArgs...); err == nil {
@@ -295,6 +338,26 @@ ORDER BY SUM(total_tokens) DESC, COUNT(*) DESC
 		}
 	}
 
+	// Requests the auth middleware rejected are reported on their own: they are
+	// traffic, not model usage, and counting them as a model is what put an
+	// "Auth" row in the model table.
+	blockedTotal := 0
+	blockedByStatus := map[string]int{}
+	if blockedRows, err := h.db.Query(`
+SELECT status_code, COUNT(*)
+FROM request_logs`+joinFilter(timeFilter, syntheticRowCond)+`
+GROUP BY status_code
+`, timeArgs...); err == nil {
+		defer blockedRows.Close()
+		for blockedRows.Next() {
+			var status, count int
+			if err := blockedRows.Scan(&status, &count); err == nil {
+				blockedTotal += count
+				blockedByStatus[strconv.Itoa(status)] = count
+			}
+		}
+	}
+
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"totalRequests":          totalRequests,
 		"totalTokens":            totalTokens,
@@ -312,6 +375,10 @@ ORDER BY SUM(total_tokens) DESC, COUNT(*) DESC
 		"periodStartMs":          sinceMs,
 		"byModel":                byModel,
 		"byProvider":             byProvider,
+		"blocked": map[string]any{
+			"total":    blockedTotal,
+			"byStatus": blockedByStatus,
+		},
 	})
 }
 
