@@ -45,16 +45,8 @@ func GetKnownProviderConfig(provider string) (ProviderConfig, bool) {
 	}
 	return cfg, true
 }
+
 var KnownProviders = map[string]ProviderConfig{
-	"framer": {
-		BaseURL:    "https://api.framer.com/ai/v3/chat/",
-		AuthHeader: "Authorization",
-		AuthScheme: "bearer",
-		StaticHeaders: map[string]string{
-			"Origin":  "https://framer.com",
-			"Referer": "https://framer.com/",
-		},
-	},
 	"openai": {
 		BaseURL:    "https://api.openai.com/v1/chat/completions",
 		AuthHeader: "Authorization",

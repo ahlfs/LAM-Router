@@ -51,30 +51,6 @@ type ProviderDefinition struct {
 }
 
 var KnownCatalogSeeds = []ProviderDefinition{
-	// 0. Framer AI
-	{
-		ID:                "framer",
-		Name:              "Framer AI",
-		Category:          "api_key",
-		Protocol:          "custom",
-		DefaultBaseURL:    strPtr("https://api.framer.com/ai/v3/chat/"),
-		WebURL:            strPtr("https://framer.com"),
-		RequiresAPIKey:    true,
-		SupportsCustomURL: true,
-		Status:            map[string]any{"state": "no_connections", "connectedCount": 0},
-		Models: []map[string]any{
-			{"id": "framer/gpt-5.5", "object": "model"},
-			{"id": "framer/gpt-5.6-luna", "object": "model"},
-			{"id": "framer/gpt-5.6-terra", "object": "model"},
-			{"id": "framer/gpt-5.6-sol", "object": "model"},
-			{"id": "framer/sonnet-4.6", "object": "model"},
-			{"id": "framer/sonnet-5", "object": "model"},
-			{"id": "framer/opus-4.8", "object": "model"},
-			{"id": "framer/opus-5", "object": "model"},
-			{"id": "framer/fable-5", "object": "model"},
-			{"id": "framer/google/gemini-3-flash-preview", "object": "model"},
-		},
-	},
 	// 0. Custom OpenAI Compatible Endpoint
 	{
 		ID:                "custom_openai",
@@ -1240,7 +1216,7 @@ func (h *RouterAPIHandler) HandleProviderAdd(w http.ResponseWriter, r *http.Requ
 	}
 	providerID := body.ProviderID
 	if providerID == "" {
-		// Extract base provider id if format is like 'framer-1788196751454'
+		// Extract base provider id if format is like 'antigravity-1788196751454'
 		if strings.Contains(id, "-") {
 			parts := strings.Split(id, "-")
 			providerID = parts[0]
@@ -1400,7 +1376,7 @@ func (h *RouterAPIHandler) HandleProviderVerify(w http.ResponseWriter, r *http.R
 
 	// 1. If provider is Antigravity / OAuth / Local free provider, pass without live probe
 	providerID := strings.ToLower(body.Provider)
-	if providerID == "antigravity" || providerID == "framer" || providerID == "opencode_zen" || providerID == "mimo-free" {
+	if providerID == "antigravity" || providerID == "opencode_zen" || providerID == "mimo-free" {
 		handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 			"success": true,
 			"valid":   true,
@@ -1560,58 +1536,6 @@ func (h *RouterAPIHandler) ScanAndSyncProviderModels(providerID string) ([]map[s
 		return h.probeAntigravityModels()
 	}
 
-	if providerID == "framer" || strings.HasPrefix(providerID, "framer") {
-		framerModels := []map[string]any{
-			{"id": "framer/gpt-5.5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-luna", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-terra", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-sol", "object": "model", "owned_by": "framer"},
-			{"id": "framer/sonnet-4.6", "object": "model", "owned_by": "framer"},
-			{"id": "framer/sonnet-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/opus-4.8", "object": "model", "owned_by": "framer"},
-			{"id": "framer/opus-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/fable-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/google/gemini-3-flash-preview", "object": "model", "owned_by": "framer"},
-		}
-
-		now := time.Now().UnixMilli()
-		tx, err := h.db.Begin()
-		if err == nil {
-			validModelIDs := make(map[string]bool)
-			for _, m := range framerModels {
-				mID, _ := m["id"].(string)
-				validModelIDs[mID] = true
-				_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, context_length, is_custom, created_at) 
-					VALUES ('framer', ?, 128000, 0, ?)
-					ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`,
-					mID, now)
-			}
-
-			// Prune stale models for framer
-			rows, qErr := tx.Query(`SELECT model_id FROM provider_models WHERE provider_id = 'framer' AND is_custom = 0`)
-			if qErr == nil {
-				var toDelete []string
-				for rows.Next() {
-					var existingID string
-					if err := rows.Scan(&existingID); err == nil {
-						if !validModelIDs[existingID] {
-							toDelete = append(toDelete, existingID)
-						}
-					}
-				}
-				rows.Close()
-
-				for _, delID := range toDelete {
-					_, _ = tx.Exec(`DELETE FROM provider_models WHERE provider_id = 'framer' AND model_id = ?`, delID)
-				}
-			}
-
-			_ = tx.Commit()
-		}
-
-		return framerModels, nil
-	}
-
 	savedConns, err := h.getAllProviders()
 	if err != nil {
 		return nil, err
@@ -1690,27 +1614,6 @@ func (h *RouterAPIHandler) ScanAndSyncProviderModels(providerID string) ([]map[s
 ON CONFLICT(provider_id, model_id) DO UPDATE SET created_at = excluded.created_at`, mid, now)
 		}
 		return codexModels, nil
-	case "framer":
-		// Framer AI Studio built-in models catalog
-		framerModels := []map[string]any{
-			{"id": "framer/gpt-5.5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-luna", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-terra", "object": "model", "owned_by": "framer"},
-			{"id": "framer/gpt-5.6-sol", "object": "model", "owned_by": "framer"},
-			{"id": "framer/sonnet-4.6", "object": "model", "owned_by": "framer"},
-			{"id": "framer/sonnet-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/opus-4.8", "object": "model", "owned_by": "framer"},
-			{"id": "framer/opus-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/fable-5", "object": "model", "owned_by": "framer"},
-			{"id": "framer/google/gemini-3-flash-preview", "object": "model", "owned_by": "framer"},
-		}
-		for _, m := range framerModels {
-			mID, _ := m["id"].(string)
-			_, _ = h.db.Exec(`INSERT OR REPLACE INTO provider_models (provider_id, model_id, context_length, max_output_tokens, pricing_input, pricing_output, updated_at) 
-				VALUES (?, ?, 128000, 8192, 0, 0, ?)`,
-				"framer", mID, time.Now().UnixMilli())
-		}
-		return framerModels, nil
 	case "openai":
 		modelsEndpoint = "https://api.openai.com/v1/models"
 	case "anthropic":
@@ -2135,4 +2038,3 @@ func (h *RouterAPIHandler) HandleProviderReorderConnections(w http.ResponseWrite
 		"connectionIds": body.ConnectionIDs,
 	})
 }
-

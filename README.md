@@ -65,7 +65,7 @@ lam-router
                             ▼
 ┌────────────────────────────────────────────────────────┐
 │                   Upstream AI Mesh                     │
-│   Claude • Gemini • OpenAI • Framer AI • Custom APIs   │
+│         Claude • Gemini • OpenAI • Custom APIs         │
 └────────────────────────────────────────────────────────┘
 ```
 
@@ -282,7 +282,7 @@ curl -X POST https://router.yourdomain.com/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ***" \
   -d '{
-    "model": "framer/google/gemini-3-flash-preview",
+    "model": "antigravity/claude-sonnet-4-6",
     "messages": [
       {"role": "user", "content": "Explain quantum computing in one sentence."}
     ],
@@ -321,7 +321,7 @@ custom_providers:
     base_url: "https://router.yourdomain.com/v1"
     api_key: "YOUR_LAM_API_KEY"
     models:
-      - "framer/google/gemini-3-flash-preview"
+      - "river/deepseek-ai/DeepSeek-V4.1-Flash"
       - "antigravity/claude-3-7-sonnet"
 ```
 

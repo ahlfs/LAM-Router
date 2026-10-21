@@ -9,7 +9,6 @@ import (
 // RegisterAll registers all built-in OAuth refreshers.
 // Standard OAuth2 providers (with client_id + token_url) are registered from KnownOAuthConfigs.
 func RegisterAll() {
-	Register("framer", refreshFramer)
 	for name, cfg := range providers.KnownOAuthConfigs {
 		if cfg.ClientID == "" || cfg.TokenURL == "" {
 			continue

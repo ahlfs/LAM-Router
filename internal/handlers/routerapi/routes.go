@@ -286,13 +286,10 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 	r.HandleFunc("/v1/admin/login", h.HandleAdminLogin)
 	r.HandleFunc("/admin/login", h.HandleAdminLogin)
 
-	// Public OAuth Callbacks & Browser Bridge scripts
+	// Public OAuth Callbacks
 	r.HandleFunc("/v1/auth/{provider}/open", h.HandleOAuthOpen)
 	r.HandleFunc("/v1/auth/{provider}/callback", h.HandleOAuthCallback)
 	r.HandleFunc("/v1/auth/{provider}/poll", h.HandleOAuthPoll)
-	r.HandleFunc("/v1/auth/framer/bridge.user.js", h.HandleFramerBridgeScript)
-	r.HandleFunc("/v1/auth/framer/bridge", h.HandleFramerBridgeIngest)
-	r.HandleFunc("/v1/auth/framer/session-sync", h.HandleFramerSessionSync)
 
 	// Protected Admin Domain Routes (requires valid admin session cookie or admin token)
 	r.Group(func(admin chi.Router) {

@@ -270,7 +270,7 @@ func (h *ChatHandler) forceRefreshOAuthToken(connectionID string) (string, strin
 	if oauthData != nil && oauthData.RefreshToken != "" {
 		refreshToken = oauthData.RefreshToken
 	} else if key, ok := connMap["apiKey"].(string); ok && key != "" {
-		// Fallback for cookie / session key stored as apiKey (e.g. Framer)
+		// Fallback for cookie / session key stored as apiKey
 		refreshToken = key
 	}
 
