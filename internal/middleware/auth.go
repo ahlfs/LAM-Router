@@ -98,6 +98,20 @@ func RequireApiKey(repo *db.Repo) func(http.Handler) http.Handler {
 				}
 			}
 
+			// Open access mode: the operator disabled API key enforcement. Requests
+			// pass through, and a valid key is still attributed when one is offered.
+			if !repo.APIKeyRequired() {
+				if provided := ExtractApiKey(r); provided != "" {
+					if obj, err := repo.GetApiKeyByKey(provided); err == nil && obj != nil && obj.IsActive == 1 {
+						ctx := context.WithValue(r.Context(), ApiKeyContextKey, obj)
+						next.ServeHTTP(w, r.WithContext(ctx))
+						return
+					}
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			apiKeyString := ExtractApiKey(r)
 			if apiKeyString == "" {
 				logAuthError(repo, "none", "", "Authentication required", http.StatusUnauthorized)

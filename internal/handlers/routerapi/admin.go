@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -302,6 +303,11 @@ func (h *RouterAPIHandler) HandleAdminLogin(w http.ResponseWriter, r *http.Reque
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"authenticated": true})
 }
 
+// minAdminPasswordLength is the shortest admin password the API accepts. The
+// admin password guards every credential in the vault, so a single character is
+// not a password; the UI hint must match this floor.
+const minAdminPasswordLength = 8
+
 // POST /v1/admin/change-password
 func (h *RouterAPIHandler) HandleAdminChangePassword(w http.ResponseWriter, r *http.Request) {
 	if !h.verifyAdminSession(r) {
@@ -333,6 +339,10 @@ func (h *RouterAPIHandler) HandleAdminChangePassword(w http.ResponseWriter, r *h
 
 	if len(body.NewPassword) < 1 {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "New password is required")
+		return
+	}
+	if len([]rune(body.NewPassword)) < minAdminPasswordLength {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest, fmt.Sprintf("New password must be at least %d characters", minAdminPasswordLength))
 		return
 	}
 	if body.NewPassword != body.Confirmation {

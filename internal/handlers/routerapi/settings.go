@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/updater"
 )
 
 type FallbackRule struct {
@@ -38,8 +40,10 @@ func (h *RouterAPIHandler) HandleSettingsGet(w http.ResponseWriter, r *http.Requ
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
 		"requireApiKey": requireAPIKey,
 		"outboundProxy": outboundProxy,
-		"version":       "1.0.0",
-		"name":          "LAM-Router",
+		// Report the version the binary actually runs, not a placeholder: the
+		// dashboard and any API consumer compare this against the latest release.
+		"version": updater.CurrentVersion,
+		"name":    "LAM-Router",
 	})
 }
 
@@ -64,10 +68,29 @@ func (h *RouterAPIHandler) HandleSettingsUpdate(w http.ResponseWriter, r *http.R
 
 	if body.OutboundProxy != nil {
 		proxyVal := strings.TrimSpace(*body.OutboundProxy)
+		// An unparsable proxy is stored happily today and only breaks requests
+		// later, inside the transport. Reject it at the door instead.
+		if proxyVal != "" && !isValidProxyURL(proxyVal) {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "outboundProxy must be an http:// or https:// URL with a host")
+			return
+		}
 		_, _ = h.db.Exec("INSERT OR REPLACE INTO system_settings (key, value) VALUES ('outbound_proxy', ?)", proxyVal)
 	}
 
 	h.HandleSettingsGet(w, r)
+}
+
+// isValidProxyURL accepts only absolute http(s) proxies with a host. Go's
+// url.Parse is far too lenient for a value that ends up in a transport.
+func isValidProxyURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return false
+	}
+	return u.Host != ""
 }
 
 // GET /v1/settings/backup/export
@@ -178,6 +201,22 @@ func (h *RouterAPIHandler) HandleBackupImport(w http.ResponseWriter, r *http.Req
 	var rawPayload map[string]json.RawMessage
 	if err := json.Unmarshal(bodyBytes, &rawPayload); err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, "Invalid JSON backup file")
+		return
+	}
+
+	// Diagnose a foreign payload instead of answering 200 null: nothing below
+	// matches, so the caller would otherwise believe a restore happened.
+	recognized := []string{"providers", "providerConnections", "apiKeys", "fallbackRules", "settings"}
+	hasRecognizedKey := false
+	for _, key := range recognized {
+		if _, ok := rawPayload[key]; ok {
+			hasRecognizedKey = true
+			break
+		}
+	}
+	if !hasRecognizedKey {
+		handlerutil.WriteJSONError(w, http.StatusBadRequest,
+			"Unrecognized backup payload: expected providers, providerConnections, apiKeys or fallbackRules")
 		return
 	}
 

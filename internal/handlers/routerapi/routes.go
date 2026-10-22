@@ -463,6 +463,13 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 				h.HandleSettingsUpdate(w, req)
 			}
 		})
+		admin.HandleFunc("/v1/settings/preferences", func(w http.ResponseWriter, req *http.Request) {
+			if req.Method == http.MethodGet {
+				h.HandlePreferencesGet(w, req)
+			} else {
+				h.HandlePreferencesUpdate(w, req)
+			}
+		})
 		admin.HandleFunc("/v1/settings/token-saver", func(w http.ResponseWriter, req *http.Request) {
 			if req.Method == http.MethodGet {
 				h.HandleTokenSaverGet(w, req)

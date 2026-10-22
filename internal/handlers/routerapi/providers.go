@@ -39,18 +39,21 @@ type ProviderConfig struct {
 }
 
 type ProviderDefinition struct {
-	ID                string            `json:"id"`
-	Name              string            `json:"name"`
-	Category          string            `json:"category"`
-	Protocol          string            `json:"protocol"`
-	DefaultBaseURL    *string           `json:"default_base_url,omitempty"`
-	WebURL            *string           `json:"web_url,omitempty"`
-	RequiresAPIKey    bool              `json:"requires_api_key"`
-	RequiresOAuth     bool              `json:"requires_oauth,omitempty"`
-	SupportsCustomURL bool              `json:"supports_custom_url"`
-	Status            map[string]any    `json:"status"`
-	Models            []map[string]any  `json:"models"`
-	Connections       []*ProviderConfig `json:"connections,omitempty"`
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Category          string  `json:"category"`
+	Protocol          string  `json:"protocol"`
+	DefaultBaseURL    *string `json:"default_base_url,omitempty"`
+	WebURL            *string `json:"web_url,omitempty"`
+	RequiresAPIKey    bool    `json:"requires_api_key"`
+	RequiresOAuth     bool    `json:"requires_oauth,omitempty"`
+	SupportsCustomURL bool    `json:"supports_custom_url"`
+	// Custom marks operator-registered endpoints (and the two custom_*Compatible seeds)
+	// so the dashboard can list them apart from built-in drivers.
+	Custom      bool              `json:"custom,omitempty"`
+	Status      map[string]any    `json:"status"`
+	Models      []map[string]any  `json:"models"`
+	Connections []*ProviderConfig `json:"connections,omitempty"`
 }
 
 var KnownCatalogSeeds = []ProviderDefinition{
@@ -1005,6 +1008,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 		cat := seed
 		sID := strings.ToLower(seed.ID)
 		knownIDs[sID] = true
+		cat.Custom = strings.HasPrefix(sID, "custom_")
 		conns := connMap[sID]
 		activeCount := 0
 		for _, c := range conns {
@@ -1039,6 +1043,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 				}
 			}
 			customDef := ProviderDefinition{
+				Custom:            true,
 				ID:                first.ProviderID,
 				Name:              first.Name,
 				Category:          first.Category,

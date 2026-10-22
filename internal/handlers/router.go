@@ -4,16 +4,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 
 	"lamrouter/internal/constants"
 	"lamrouter/internal/db"
+	"lamrouter/internal/gatewayprefs"
 	"lamrouter/internal/handlers/chat"
 	"lamrouter/internal/handlers/media"
 	"lamrouter/internal/handlers/oauth"
 	"lamrouter/internal/handlers/shared"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/log"
 	"lamrouter/internal/middleware"
 	"lamrouter/internal/webdist"
 )
@@ -132,7 +135,25 @@ func SetupRoutes(r interface {
 
 // SetupServerRouter mounts public endpoints (/health, /api/hello) and
 // API-key protected routes (all engine + admin routes) on the chi router.
+var retentionOnce sync.Once
+
+// startRetention runs the audit-log pruner once per process. Called from route
+// setup so every entry point (CLI, tests via main) gets the same behaviour.
+func startRetention(repo *db.Repo) {
+	if repo == nil {
+		return
+	}
+	retentionOnce.Do(func() {
+		if raw := repo.RawDB(); raw != nil {
+			gatewayprefs.StartRetention(raw, gatewayprefs.RetentionInterval, func(res gatewayprefs.PruneResult) {
+				log.Info("retention", "pruned audit rows", "logs", res.DeletedLogs, "details", res.DeletedDetails, "window_days", res.WindowDays)
+			})
+		}
+	})
+}
+
 func SetupServerRouter(r chi.Router, repo *db.Repo, ts *TokenSaverConfig) {
+	startRetention(repo)
 	// Public (unauthenticated) endpoints
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Accept"), "text/html") {

@@ -7,7 +7,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -62,7 +64,7 @@ func TestForwardRequest_BearerAuth(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "sk-secret", body, false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "sk-secret", body, false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +92,7 @@ func TestForwardRequest_RawAuth(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body := []byte(`{"model":"x","messages":[]}`)
-	err := h.forwardRequest(context.Background(), rec, cfg, "raw-key", body, false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "raw-key", body, false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -114,7 +116,7 @@ func TestForwardRequest_DefaultAuthWhenUnknownScheme(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -138,7 +140,7 @@ func TestForwardRequest_NoAuth(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "should-not-be-sent", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "should-not-be-sent", []byte(`{}`), false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -161,7 +163,7 @@ func TestForwardRequest_StaticHeadersApplied(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestForwardRequest_UpstreamError(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil)
+	err := h.forwardRequest(context.Background(), rec, cfg, "k", []byte(`{}`), false, false, nil, nil)
 	if err == nil {
 		t.Fatal("expected upstream error")
 	}
@@ -304,7 +306,7 @@ func TestForwardRequest_StreamSetsAcceptHeader(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	body, _ := json.Marshal(map[string]any{"model": "x", "messages": []any{}})
-	err := h.forwardRequest(context.Background(), rec, cfg, "k", body, true, false, &streamMetrics{})
+	err := h.forwardRequest(context.Background(), rec, cfg, "k", body, true, false, &streamMetrics{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -313,5 +315,69 @@ func TestForwardRequest_StreamSetsAcceptHeader(t *testing.T) {
 	}
 	if rec.Body.String() != "data: ok\n\n" {
 		t.Errorf("expected streamed body, got %q", rec.Body.String())
+	}
+}
+
+// A per-connection client carries the proxy chosen by the connection or the
+// global outbound_proxy setting. forwardRequest must actually use it — passing
+// it and then ignoring it is what made the Settings proxy field inert.
+func TestForwardRequestUsesProvidedClient(t *testing.T) {
+	upstream := openaiOKServer()
+	defer upstream.Close()
+
+	h, cleanup := setupHandlerForForward(t)
+	defer cleanup()
+
+	cfg := &providers.ProviderConfig{
+		BaseURL:       upstream.URL,
+		AuthScheme:    constants.AuthSchemeBearer,
+		AuthHeader:    constants.HeaderAuthorization,
+		StaticHeaders: map[string]string{},
+	}
+	body := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}]}`)
+
+	// 1. nil client falls back to the handler's direct client.
+	rec := httptest.NewRecorder()
+	if err := h.forwardRequest(context.Background(), rec, cfg, "k", body, false, false, nil, nil); err != nil {
+		t.Fatalf("nil client should use the direct client: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 with direct client, got %d", rec.Code)
+	}
+
+	// 2. a client wired to a recording proxy must route through it.
+	var proxied atomic.Int32
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied.Add(1)
+		w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"via-proxy","choices":[{"message":{"content":"ok"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	defer proxy.Close()
+
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatalf("parse proxy url: %v", err)
+	}
+	proxiedClient := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)}}
+
+	rec2 := httptest.NewRecorder()
+	if err := h.forwardRequest(context.Background(), rec2, cfg, "k", body, false, false, nil, proxiedClient); err != nil {
+		t.Fatalf("request through proxy failed: %v", err)
+	}
+	if got := proxied.Load(); got != 1 {
+		t.Fatalf("proxy saw %d requests, want 1 — the provided client was ignored", got)
+	}
+	upstreamHits := strings.Count(rec2.Body.String(), "via-proxy")
+	if upstreamHits != 1 {
+		t.Fatalf("expected the proxy response to be returned, got %s", rec2.Body.String())
+	}
+
+	// 3. a client pointed at a dead proxy must fail instead of silently going direct.
+	deadURL, _ := url.Parse("http://127.0.0.1:1")
+	deadClient := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(deadURL)}}
+	rec3 := httptest.NewRecorder()
+	if err := h.forwardRequest(context.Background(), rec3, cfg, "k", body, false, false, nil, deadClient); err == nil {
+		t.Fatal("dead proxy should surface an error, not fall back to a direct call")
 	}
 }

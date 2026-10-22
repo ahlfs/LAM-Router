@@ -27,6 +27,7 @@ func (h *ChatHandler) forwardRequest(
 	isStream bool,
 	translateResponse bool,
 	metrics *streamMetrics,
+	client *http.Client,
 ) error {
 	// OpenAI-compat Gemini endpoints validate tool schemas as strictly as the
 	// native one — sanitize tools so no unsupported JSON-Schema keyword reaches
@@ -36,7 +37,12 @@ func (h *ChatHandler) forwardRequest(
 			body = sanitized
 		}
 	}
-	resp, err := internalproxy.ForwardOpenAI(ctx, h.Client, cfg, apiKey, body, isStream)
+	// Use the per-connection client when the caller built one; it carries the
+	// proxy that this connection (or the global outbound_proxy setting) selected.
+	if client == nil {
+		client = h.Client
+	}
+	resp, err := internalproxy.ForwardOpenAI(ctx, client, cfg, apiKey, body, isStream)
 	if err != nil {
 		return fmt.Errorf("forward to upstream: %w", err)
 	}

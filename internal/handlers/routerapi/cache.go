@@ -52,7 +52,11 @@ func (h *RouterAPIHandler) HandleCacheUpdate(w http.ResponseWriter, r *http.Requ
 	if body.Enabled != nil {
 		c.SetEnabled(*body.Enabled)
 	}
-	if body.TTLSeconds != nil && *body.TTLSeconds > 0 {
+	if body.TTLSeconds != nil {
+		if *body.TTLSeconds < 1 {
+			handlerutil.WriteJSONError(w, http.StatusBadRequest, "ttlSeconds must be a positive number of seconds")
+			return
+		}
 		c.SetTTL(time.Duration(*body.TTLSeconds) * time.Second)
 	}
 

@@ -393,6 +393,20 @@ func parseJSONString(raw string) string {
 	return raw
 }
 
+// APIKeyRequired reports whether the gateway enforces client API keys on the
+// inference surface. The setting defaults to true; only an explicit "false"
+// opens the gateway, so a missing row can never silently disable auth.
+func (r *Repo) APIKeyRequired() bool {
+	if r == nil || r.db == nil {
+		return true
+	}
+	var raw string
+	if err := r.db.QueryRow("SELECT value FROM system_settings WHERE key = 'require_api_key'").Scan(&raw); err != nil {
+		return true
+	}
+	return strings.TrimSpace(strings.ToLower(raw)) != "false"
+}
+
 // GetComboByName retrieves a combo configuration by its name.
 func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	var combo models.Combo

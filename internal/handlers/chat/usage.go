@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lamrouter/internal/constants"
+	"lamrouter/internal/gatewayprefs"
 	"lamrouter/internal/log"
 	"lamrouter/internal/middleware"
 	"lamrouter/internal/models"
@@ -215,6 +216,14 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 		usage = &translator.OpenAIUsage{}
 	}
 
+	// Operator preferences decide how much of this record survives. They are read
+	// per request (one tiny indexed row) so a Settings change applies immediately.
+	prefs := gatewayprefs.Load(h.Repo.RawDB())
+	if prefs.LoggingLevel == gatewayprefs.LoggingLevelDisabled {
+		// Zero trace: the operator asked for no SQLite request rows at all.
+		return
+	}
+
 	var ttftMs int64
 	var respContent string
 	if metrics != nil {
@@ -239,12 +248,23 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 		}
 	}
 
+	if !prefs.RecordTokenUsage {
+		// Telemetry off: keep the audit row (status, latency, identity) but stop
+		// accruing token and cost numbers.
+		usage.PromptTokens = 0
+		usage.CompletionTokens = 0
+	}
+
 	totalTokens := usage.PromptTokens + usage.CompletionTokens
 	cost := pricing.EstimateCost(info.Model, usage.PromptTokens, usage.CompletionTokens)
 	metaJSON := fmt.Sprintf(`{"provider":"%s","model":"%s","connectionId":"%s"}`, info.Provider, info.Model, info.ConnectionID)
 
 	cachedTokens := usage.GetCachedTokens()
 	cacheCreationTokens := usage.CacheCreationInputTokens
+	if !prefs.RecordTokenUsage {
+		cachedTokens = 0
+		cacheCreationTokens = 0
+	}
 
 	log.Info("usage", "logged", "provider", info.Provider, "model", info.Model, "prompt", usage.PromptTokens, "completion", usage.CompletionTokens, "cached", cachedTokens, "cache_creation", cacheCreationTokens, "ttft_ms", ttftMs, "latency_ms", latencyMs, "cost", cost)
 
@@ -268,8 +288,9 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 			200, latencyMs, nowMillis, cachedTokens, cacheCreationTokens, info.CompressionTokens, usage.ReasoningTokens(), cost)
 	}
 
-	// Update token usage and cost on the client API key
-	if info.ClientAPIKey != "" {
+	// Update token usage and cost on the client API key (skipped when token
+	// telemetry is disabled, because there are no tokens to bill).
+	if info.ClientAPIKey != "" && prefs.RecordTokenUsage {
 		if err := h.Repo.IncrementApiKeyUsage(info.ClientAPIKey, totalTokens, cost); err != nil {
 			log.Error("usage", "increment api key usage failed", "key", info.ClientAPIKey, "error", err)
 		}
@@ -279,7 +300,7 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 	reqID := fmt.Sprintf("%d-%s", now.UnixMilli(), info.Model)
 	reqMsgs := extractRequestMessages(requestBody)
 
-	reqData, err := json.Marshal(map[string]any{
+	detail := map[string]any{
 		"id": reqID, "provider": info.Provider, "model": info.Model,
 		"connectionId": info.ConnectionID, "apiKey": map[string]string{"id": apiKeyID, "name": apiKeyName},
 		"status":    "success",
@@ -291,9 +312,17 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 			"compression_tokens": info.CompressionTokens,
 			"reasoning_tokens":   usage.ReasoningTokens(),
 		},
-		"request":  map[string]any{"messages": reqMsgs},
-		"response": map[string]any{"content": respContent},
-	})
+	}
+	// Metadata-only logging keeps the audit trail without storing the prompt or
+	// the completion, which is the whole point of the privacy level.
+	if prefs.LoggingLevel != gatewayprefs.LoggingLevelMetadata {
+		detail["request"] = map[string]any{"messages": reqMsgs}
+		detail["response"] = map[string]any{"content": respContent}
+	} else {
+		reqMsgs, respContent = nil, ""
+	}
+
+	reqData, err := json.Marshal(detail)
 	if err != nil {
 		log.Error("usage", "marshal request detail failed", "error", err)
 		return

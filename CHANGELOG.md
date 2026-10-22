@@ -1,5 +1,24 @@
 # Changelog
 
+## [v2.3.1] — 2026-10-22
+
+### Perbaikan audit Settings
+- **Setelan yang benar-benar dipakai gateway.** Setelan logging, retensi log, dan pencatatan token
+  sekarang tersimpan di server (`GET`/`POST /v1/settings/preferences`) dan dijalankan gateway:
+  pemangkas audit (`request_logs`, `requestDetails`) berjalan saat start lalu tiap 6 jam, level
+  `metadata` membuang isi request/response dari baris detail, level `disabled` tidak menulis baris
+  audit sama sekali, dan `recordTokenUsage=false` menyimpan token/biaya nol serta melewati akrual
+  kuota API key.
+- **Playground defaults tersambung.** Nilai temperature, top-p, max tokens, system prompt, dan
+  stream dari tab Playground Defaults sekarang dibaca halaman Playground (bukan sekadar disimpan),
+  diverifikasi lewat render: slider 0.20, max tokens 1234, system prompt terisi.
+- **Reset All to Defaults** kini juga mengembalikan preferensi server ke nilai pabrik.
+- **Validasi input:** password admin minimal 8 karakter, `outboundProxy` harus URL http(s) absolut,
+  TTL cache minimal 1 detik, import backup menolak payload asing, dan `GET /v1/settings` melaporkan
+  versi biner yang benar-benar berjalan (bukan "1.0.0").
+- **Label jujur:** kontrol yang belum ditegakkan gateway (request timeout, retry/backoff, token
+  refresh lead, mask sensitive headers) kini bertanda "Browser preference only".
+
 ## [v2.3.0] — 2026-10-22
 
 ### Sorotan
