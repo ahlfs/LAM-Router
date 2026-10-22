@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"lamrouter/internal/db"
 	"lamrouter/internal/handlers/shared"
 	"lamrouter/internal/log"
+	"lamrouter/internal/promptinject"
 	"lamrouter/internal/providers"
 	"lamrouter/internal/proxy/executor"
 	"lamrouter/internal/proxy/oauth"
@@ -208,6 +210,9 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 					firstInfo.Strategy = combo.Strategy
 					firstInfo.SystemPrompt = combo.SystemPrompt
 					firstInfo.InjectMode = combo.InjectMode
+					firstInfo.InjectEnabled = promptinject.ResolveEnabled(combo.PromptInjectionEnabled, combo.SystemPrompt)
+					firstInfo.DisplayIdentity = combo.DisplayIdentity
+					firstInfo.ComboName = combo.Name
 					return firstInfo, nil
 				}
 			}
@@ -235,14 +240,27 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 				if firstInfo != nil {
 					firstInfo.ComboModels = targets
 					firstInfo.Strategy = "fallback"
-					// baca system_prompt dan inject_mode dari fallback_rules untuk source_model ini
-					var sp, im string
+					// baca prompt settings dari fallback_rules untuk source_model ini
+					var sp, im, dn sql.NullString
+					var enabled sql.NullInt64
 					_ = rawDB.QueryRow(
-						`SELECT COALESCE(MAX(system_prompt),''), COALESCE(MAX(inject_mode),'prepend') FROM fallback_rules WHERE source_model = ?`,
+						`SELECT COALESCE(MAX(system_prompt),''), COALESCE(MAX(inject_mode),'prepend'),
+						        MAX(prompt_injection_enabled), COALESCE(MAX(display_identity),'')
+						   FROM fallback_rules WHERE source_model = ?`,
 						modelStr,
-					).Scan(&sp, &im)
-					firstInfo.SystemPrompt = sp
-					firstInfo.InjectMode = im
+					).Scan(&sp, &im, &enabled, &dn)
+					firstInfo.SystemPrompt = sp.String
+					firstInfo.InjectMode = im.String
+					if dn.Valid {
+						firstInfo.DisplayIdentity = dn.String
+					}
+					var stored *int64
+					if enabled.Valid {
+						value := enabled.Int64
+						stored = &value
+					}
+					firstInfo.InjectEnabled = promptinject.ResolveEnabled(stored, sp.String)
+					firstInfo.ComboName = modelStr
 					return firstInfo, nil
 				}
 			}

@@ -16,6 +16,7 @@ import (
 	"lamrouter/internal/handlers/routerapi"
 	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/log"
+	"lamrouter/internal/promptinject"
 	"lamrouter/internal/providers"
 	"lamrouter/internal/translator"
 	"lamrouter/internal/updater"
@@ -59,6 +60,11 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Prompt injection runs before the cache lookup so the cache key covers the
+	// composed body: two combos whose prompts differ must never share an entry.
+	// Global runs first, then the combo scope (see applyPromptInjection).
+	body = h.applyPromptInjection(body, modelInfo, reqBody.Model, promptinject.FormatChat)
+
 	// Exact Response Cache Layer Check
 	cacheInstance := cache.GetGlobalCache()
 	if cacheInstance.IsEnabled() {
@@ -84,21 +90,6 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 				return
 			}
 		}
-	}
-
-	// Prompt injection: terapkan sebelum diteruskan ke upstream / combo
-	// 1. Global inject (system_settings)
-	if rawDB := h.Repo.RawDB(); rawDB != nil {
-		var globalPrompt, globalMode string
-		_ = rawDB.QueryRow("SELECT value FROM system_settings WHERE key = 'global_system_prompt'").Scan(&globalPrompt)
-		_ = rawDB.QueryRow("SELECT value FROM system_settings WHERE key = 'global_inject_mode'").Scan(&globalMode)
-		if globalPrompt != "" {
-			body = InjectSystemPrompt(body, globalPrompt, globalMode)
-		}
-	}
-	// 2. Combo-level inject (diisi oleh resolveModel)
-	if modelInfo.SystemPrompt != "" {
-		body = InjectSystemPrompt(body, modelInfo.SystemPrompt, modelInfo.InjectMode)
 	}
 
 	if len(modelInfo.ComboModels) > 0 {
@@ -192,6 +183,12 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+
+	// Prompt injection applies to the Claude-shaped body the client sent, before
+	// translation to the member provider's wire format. The engine's Claude
+	// branch keeps block arrays (and their cache_control) intact; the translator
+	// folds them into one OpenAI system message.
+	body = h.applyPromptInjection(body, modelInfo, reqBody.Model, promptinject.FormatClaude)
 
 	translateResponse := true
 	var workingBody map[string]any

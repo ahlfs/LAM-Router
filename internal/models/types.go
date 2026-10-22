@@ -84,8 +84,13 @@ type Combo struct {
 	Strategy     string  `json:"strategy"` // routing strategy: "fallback", "round-robin", "capacity", "fusion"
 	SystemPrompt string  `json:"systemPrompt,omitempty"` // injected before every request on this combo
 	InjectMode   string  `json:"injectMode,omitempty"`   // "prepend" | "append" | "replace" | "hidden_user"
-	CreatedAt    string  `json:"createdAt"`
-	UpdatedAt    string  `json:"updatedAt"`
+	// PromptInjectionEnabled is the stored flag. nil means the row predates the
+	// flag, so prompt presence decides (see promptinject.ResolveEnabled).
+	PromptInjectionEnabled *int64 `json:"promptInjectionEnabled,omitempty"`
+	// DisplayIdentity is the value for {{display_name}}; empty falls back to Name.
+	DisplayIdentity string `json:"displayIdentity,omitempty"`
+	CreatedAt       string `json:"createdAt"`
+	UpdatedAt       string `json:"updatedAt"`
 }
 
 // KV represents a scoped key-value store entry.

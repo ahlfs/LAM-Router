@@ -1,5 +1,51 @@
 # Changelog
 
+## [v2.3.0] — 2026-10-22
+
+### Sorotan
+- **feat(prompt-inject): mesin injeksi ditulis ulang dan mencakup empat bentuk wire.** Paket baru
+  `internal/promptinject` menggantikan penambal string lama di `chat/inject.go`. Kontraknya:
+  tiga variabel template (`{{combo_name}}`, `{{display_name}}`, `{{requested_model}}`), empat
+  mode (`prepend`, `append`, `replace`, `hidden_user`), dan komposisi terpisah per format —
+  OpenAI chat, Claude (blok `system` dengan `cache_control` utuh), Responses (`instructions`
+  dilipat ke `input`), dan Gemini (`systemInstruction.parts`, `contents` tidak disentuh).
+  Mode `append` menaruh instruksi setelah giliran system/developer terakhir, `replace` membuang
+  semua giliran system/developer klien, dan body yang tidak perlu diubah dikembalikan apa adanya.
+- **feat(prompt-inject): tombol on/off dan Public Identity per scope.** Baris lama tetap aktif
+  (flag `NULL` berarti "prompt tidak kosong = aktif"), jadi menambahkan sakelar tidak mematikan
+  prompt yang sudah tersimpan. API simpan kini bergaya patch: hanya field yang dikirim yang
+  ditulis, `null`/string kosong menghapus, dan `"enabled":"true"` ditolak 400 alih-alih
+  dikoersi. Prompt tidak lagi dipangkas saat disimpan.
+- **feat(prompt-inject): halaman dashboard dirapikan.** Sakelar aktif per kartu, isian Public
+  Identity, unggah `.txt` (BOM dibuang, kosong = null), dan pratinjau dihitung mesin server yang
+  sama lewat `POST /v1/prompt-inject/preview` sehingga tidak bisa melenceng dari perilaku asli.
+  Pratinjau tertutup secara default dan isinya dipotong 1.200 karakter per blok — prompt 150 KB
+  tidak lagi memicu render ulang di setiap ketikan.
+- **feat(prompt-inject): jalur Claude `/v1/messages` ikut disuntik.** Injeksi dijalankan pada body
+  Claude asli sebelum translasi, jadi provider Claude native menerima blok `system` utuh dan
+  provider OpenAI menerima hasil gabungan dari translator.
+- **fix(cache): kunci cache menghitung body yang sudah disuntik.** Sebelumnya lookup terjadi
+  sebelum injeksi, sehingga dua combo dengan member sama dan prompt berbeda bisa saling menyajikan
+  jawaban cache.
+- **fix(quota): kartu provider tertutup secara default.** Kondisi render dan label chevron
+  sebelumnya terbalik, jadi semua kartu terbuka saat halaman dibuka dan tombol Expand/Collapse
+  bertukar arti.
+
+### Ditambahkan
+- `internal/promptinject/`: `Render`, `Validate`, `Apply` beserta test tabel untuk empat format,
+  mode, variabel template, dan jaminan no-op.
+- `internal/handlers/chat/prompt.go`: satu titik komposisi (global lalu combo) yang dipanggil
+  sebelum cache dan sebelum dispatch combo/fallback.
+- `internal/handlers/routerapi/prompt_inject.go`: field `enabled`, `enabledExplicit`,
+  `displayIdentity`, patch-style set, dan endpoint preview.
+- Kolom `prompt_injection_enabled` + `display_identity` pada `combos` dan `fallback_rules`, serta
+  kunci `global_prompt_enabled` pada `system_settings`. Semua additive; baris lama aman.
+
+### Dihapus
+- `internal/handlers/chat/inject.go` dan `inject_test.go` — digantikan oleh paket
+  `promptinject`; seluruh kasus ujinya (termasuk `hidden_user`) dipindahkan ke test baru.
+
+
 ## [v2.2.0] — 2026-10-21
 
 ### Sorotan

@@ -409,10 +409,11 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	}
 	combo.Strategy = "fallback" // default
 
-	// strategy, system_prompt, inject_mode — kolom yang mungkin belum ada di DB lama
-	var strat, sp, im sql.NullString
-	_ = r.db.QueryRow("SELECT strategy, COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend') FROM combos WHERE id = ?", combo.ID).
-		Scan(&strat, &sp, &im)
+	// strategy, prompt settings — kolom yang mungkin belum ada di DB lama
+	var strat, sp, im, dn sql.NullString
+	var enabled sql.NullInt64
+	_ = r.db.QueryRow("SELECT strategy, COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend'), prompt_injection_enabled, COALESCE(display_identity,'') FROM combos WHERE id = ?", combo.ID).
+		Scan(&strat, &sp, &im, &enabled, &dn)
 	if strat.Valid && strat.String != "" {
 		combo.Strategy = strat.String
 	}
@@ -421,6 +422,13 @@ func (r *Repo) GetComboByName(name string) (*models.Combo, error) {
 	}
 	if im.Valid && im.String != "" {
 		combo.InjectMode = im.String
+	}
+	if dn.Valid {
+		combo.DisplayIdentity = dn.String
+	}
+	if enabled.Valid {
+		value := enabled.Int64
+		combo.PromptInjectionEnabled = &value
 	}
 
 	return &combo, nil

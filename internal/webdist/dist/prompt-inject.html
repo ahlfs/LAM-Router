@@ -178,13 +178,62 @@
 
   .skeleton { height: 74px; border-radius: 11px; background: var(--field); animation: sk 1.2s ease-in-out infinite alternate; }
   @keyframes sk { from { opacity: .45; } to { opacity: 1; } }
+  /* ---------- switch / fields / upload / server preview ---------- */
+  .switch { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+  .switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .switch .track {
+    position: relative; width: 32px; height: 18px; border-radius: 999px; flex-shrink: 0;
+    background: var(--field, rgba(255,255,255,.03)); border: 1px solid var(--border, rgba(255,255,255,.1));
+    transition: background .16s, border-color .16s;
+  }
+  .switch .track::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--muted-foreground, #8a8f98); transition: transform .16s, background .16s;
+  }
+  .switch input:checked + .track { background: rgba(16,185,129,.2); border-color: rgba(16,185,129,.5); }
+  .switch input:checked + .track::after { transform: translateX(14px); background: var(--green, #10b981); }
+  .switch input:focus-visible + .track { box-shadow: 0 0 0 3px rgba(94,106,210,.18); }
+  .switch .sw-label { font-size: 11.5px; color: var(--muted-foreground, #8a8f98); }
+
+  input.field {
+    height: 32px; padding: 0 10px; border-radius: 8px; min-width: 200px;
+    background: var(--field, rgba(255,255,255,.03)); border: 1px solid var(--border, rgba(255,255,255,.08));
+    color: var(--foreground, #f7f8f8); font-family: inherit; font-size: 12px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  input.field::placeholder { color: var(--muted-foreground, #8a8f98); opacity: .65; }
+  input.field:focus { border-color: var(--ring, #5e6ad2); box-shadow: 0 0 0 3px rgba(94,106,210,.14); }
+
+  .file-label {
+    display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+    font-size: 11.5px; font-weight: 600; padding: 7px 11px; border-radius: 8px;
+    border: 1px solid var(--border, rgba(255,255,255,.08)); color: var(--muted-foreground, #8a8f98);
+    transition: color .15s, background .15s;
+  }
+  .file-label:hover { color: var(--foreground, #f7f8f8); background: var(--hover, rgba(255,255,255,.05)); }
+  .file-label input { display: none; }
+
+  .pv {
+    margin-top: 10px; border: 1px dashed var(--border, rgba(255,255,255,.14)); border-radius: 9px;
+    padding: 9px 11px; background: var(--field, rgba(255,255,255,.03)); display: none;
+  }
+  .pv.show { display: block; }
+  .pv-line {
+    font-size: 11.5px; line-height: 1.7; color: var(--muted-foreground, #8a8f98);
+    white-space: pre-wrap; word-break: break-word; font-family: ui-monospace, Menlo, monospace;
+  }
+  .pv-line b { color: var(--ink-2, #d0d6e0); font-weight: 600; }
+  .pv-line .inj { color: var(--primary, #8b93f0); }
+  .pv-meta { margin-top: 7px; font-size: 10.5px; color: var(--muted-foreground, #8a8f98); opacity: .8; }
+  .pv-btn { padding: 5px 10px; font-size: 11px; font-weight: 600; }
+  .pv-more { opacity: .65; font-style: italic; }
 </style>
 </head>
 <body>
 <div class="wrap">
   <p class="eyebrow">Request Shaping</p>
   <h1>Prompt Inject</h1>
-  <p class="sub">Inject a system prompt into requests passing through the gateway without touching the client. Global applies to every request; a combo layers its prompt on top.</p>
+  <p class="sub">Inject a system prompt into requests passing through the gateway without touching the client. Global applies to every request; a combo layers its prompt on top. Use {{combo_name}}, {{display_name}} and {{requested_model}} inside a prompt to fill in names at request time.</p>
 
   <div class="stack">
     <section class="card">
@@ -193,17 +242,29 @@
           <h2 class="card-title">Global prompt</h2>
           <p class="card-hint">Applied to every request, before any combo prompt.</p>
         </div>
-        <span class="pill" id="globalBadge"><span class="dot"></span><span id="globalBadgeText">empty</span></span>
+        <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+          <label class="switch" title="Enable or pause the global prompt">
+            <input type="checkbox" id="globalSwitch" />
+            <span class="track"></span>
+            <span class="sw-label" id="globalSwitchLabel">off</span>
+          </label>
+          <span class="pill" id="globalBadge"><span class="dot"></span><span id="globalBadgeText">empty</span></span>
+        </div>
       </div>
       <textarea id="globalPrompt" placeholder="e.g. Always answer in concise English."></textarea>
       <div class="row">
         <div id="globalModeSlot"></div>
         <span class="counter" id="globalCount">0 chars</span>
         <span class="spacer"></span>
+        <label class="file-label" title="Load a .txt file into the editor">
+          <input type="file" id="globalFile" accept=".txt,text/plain" />
+          Load .txt
+        </label>
+        <button class="btn ghost pv-btn" id="globalPreviewToggle" type="button">Preview</button>
         <button class="btn ghost" id="globalClear" type="button">Clear</button>
         <button class="btn" id="globalSave" type="button">Save</button>
       </div>
-      <div class="preview" id="globalPreview"></div>
+      <div class="pv" id="globalPreview"></div>
     </section>
 
     <section class="card">
@@ -231,9 +292,11 @@
     { value: "replace", desc: "overrides the client system prompt" },
     { value: "hidden_user", desc: "sent as a user turn" }
   ];
-  var SAMPLE = "You are a helpful assistant.";
 
-  var state = { global: { systemPrompt: "", injectMode: "prepend" }, combos: [] };
+  var state = {
+    global: { systemPrompt: "", injectMode: "prepend", enabled: false, enabledExplicit: false },
+    combos: []
+  };
 
   // --- theme sync: mirror the dashboard's <html> class when framed ---
   var framed = false;
@@ -405,7 +468,7 @@
     };
   }
 
-  // ---------- preview & badge ----------
+  // ---------- toast ----------
   var toastTimer;
   function toast(msg, isErr) {
     var t = $("toast");
@@ -415,44 +478,244 @@
     toastTimer = setTimeout(function () { t.className = ""; }, 2400);
   }
 
-  function preview(prompt, mode) {
-    if (!prompt.trim()) return "<b>No injection yet.</b> Requests pass through unchanged.";
-    var p = "<span class='inj'>" + esc(prompt) + "</span>";
-    if (mode === "replace") return p + "\n<i>client system prompt dropped</i>";
-    if (mode === "hidden_user") return "<b>user:</b> " + p + "\n<b>assistant:</b> Understood.\n<b>user:</b> (original client message)";
-    if (mode === "append") return "<b>system:</b> " + SAMPLE + "\n\n" + p;
-    return p + "\n\n<b>system:</b> " + SAMPLE;
+  // ---------- badges ----------
+  function effective(prompt, enabled) {
+    return !!enabled && !!(prompt && prompt.trim());
+  }
+  function badgeText(prompt, enabled) {
+    if (effective(prompt, enabled)) return "active";
+    if (prompt && prompt.trim()) return "paused";
+    return "empty";
+  }
+  function paintBadge(pillEl, textEl, prompt, enabled) {
+    var on = effective(prompt, enabled);
+    pillEl.classList.toggle("on", on);
+    textEl.textContent = badgeText(prompt, enabled);
   }
 
-  var globalDD = makeDD(MODES, "prepend", function (v) {
-    updateGlobalPreview(v);
+  // ---------- preview (server-side engine, so it cannot drift) ----------
+  var previewSeq = { global: 0 };
+  var previewTimers = {};
+
+  function renderPreview(el, data) {
+    if (!el || !data) return;
+    el.classList.add("show");
+    var rendered = data.rendered || "";
+    if (!data.enabled || !rendered.trim()) {
+      el.innerHTML = '<div class="pv-line">Injection off — requests pass through unchanged.</div>';
+      return;
+    }
+    var chat = (data.samples && data.samples["openai-chat"]) || null;
+    var msgs = (chat && chat.messages) || [];
+    var html = "";
+    msgs.forEach(function (m) {
+      var content = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
+      var isInj = m.role === "system" && content === rendered;
+      html += '<div class="pv-line"><b>' + esc(m.role) + ':</b> ' +
+        (isInj ? '<span class="inj">' + clipLine(content) + '</span>' : clipLine(content)) + '</div>';
+    });
+    var claude = (data.samples && data.samples.claude) || {};
+    var gemini = (data.samples && data.samples.gemini) || {};
+    var responses = (data.samples && data.samples["openai-responses"]) || {};
+    var claudeBlocks = (claude.system && claude.system.length) || 0;
+    var geminiParts = (gemini.systemInstruction && gemini.systemInstruction.parts && gemini.systemInstruction.parts.length) || 0;
+    var responseItems = (responses.input && responses.input.length) || 0;
+    html += '<div class="pv-meta">claude: ' + claudeBlocks + ' system block(s) · gemini: ' + geminiParts +
+      ' instruction part(s) · responses: ' + responseItems + ' input item(s)</div>';
+    el.innerHTML = html;
+    fitFrame();
+  }
+
+  function requestPreview(key, cfg, el) {
+    var seq = (previewSeq[key] = (previewSeq[key] || 0) + 1);
+    fetch("/v1/prompt-inject/preview", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cfg)
+    }).then(function (r) {
+      if (!r.ok) throw new Error("preview failed");
+      return r.json();
+    }).then(function (j) {
+      if (seq !== previewSeq[key]) return; // a newer keystroke won
+      renderPreview(el, j);
+    }).catch(function () { /* keep the previous preview on transient failure */ });
+  }
+
+  function previewVisible(el) {
+    return !!el && el.classList.contains("show");
+  }
+
+  // A hidden preview costs nothing: no request, no DOM. Long prompts (100 KB+)
+  // would otherwise re-render on every keystroke.
+  function schedulePreview(key, cfgFn, el, delay) {
+    clearTimeout(previewTimers[key]);
+    if (!previewVisible(el)) return;
+    previewTimers[key] = setTimeout(function () {
+      requestPreview(key, cfgFn(), el);
+    }, delay == null ? 260 : delay);
+  }
+
+  // Rendering cap: a 150 KB prompt clipped to 1.2 KB keeps the box readable and
+  // the page responsive, and the trimmed remainder is stated instead of hidden.
+  var PREVIEW_LIMIT = 1200;
+  function clipLine(text) {
+    if (text.length <= PREVIEW_LIMIT) return esc(text);
+    return esc(text.slice(0, PREVIEW_LIMIT)) +
+      '<span class="pv-more"> …+' + (text.length - PREVIEW_LIMIT).toLocaleString() + ' more chars</span>';
+  }
+
+  // ---------- save ----------
+  function postSettings(payload) {
+    return fetch("/v1/prompt-inject/set", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then(function (r) {
+      if (r.status === 401) { location.href = "/login"; throw new Error("unauthorized"); }
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
+        return j;
+      });
+    });
+  }
+
+  function setBusy(row, busy) {
+    var scope = row || document;
+    Array.prototype.forEach.call(scope.querySelectorAll("button, .file-label"), function (b) {
+      b.disabled = busy;
+      b.style.opacity = busy ? ".55" : "";
+      b.style.pointerEvents = busy ? "none" : "";
+    });
+  }
+
+  function applyEntry(entry, comboId) {
+    if (entry.scope === "global") {
+      state.global.systemPrompt = entry.systemPrompt || "";
+      state.global.injectMode = entry.injectMode || "prepend";
+      state.global.enabled = !!entry.enabled;
+      state.global.enabledExplicit = !!entry.enabledExplicit;
+      return;
+    }
+    var combo = state.combos.filter(function (c) { return c.comboId === comboId; })[0];
+    if (!combo) return;
+    combo.systemPrompt = entry.systemPrompt || "";
+    combo.injectMode = entry.injectMode || "prepend";
+    combo.enabled = !!entry.enabled;
+    combo.enabledExplicit = !!entry.enabledExplicit;
+    combo.displayIdentity = entry.displayIdentity || "";
+  }
+
+  function updateCounter() {
+    var active = state.combos.filter(function (c) { return effective(c.systemPrompt, c.enabled); }).length;
+    if (effective(state.global.systemPrompt, state.global.enabled)) active += 1;
+    $("counter").textContent = active + " active · " + (state.combos.length + 1) + " targets";
+  }
+
+  // ---------- global card ----------
+  var globalDD = makeDD(MODES, "prepend", function () {
+    paintGlobalPreview();
+    schedulePreview("global", globalPreviewCfg, $("globalPreview"));
   });
   $("globalModeSlot").appendChild(globalDD.el);
 
-  function setBadge(el, textEl, prompt) {
-    var on = !!(prompt && prompt.trim());
-    el.classList.toggle("on", on);
-    textEl.textContent = on ? "active" : "empty";
+  function globalPreviewCfg() {
+    return {
+      scope: "global",
+      systemPrompt: $("globalPrompt").value,
+      injectMode: globalDD.get(),
+      enabled: $("globalSwitch").checked
+    };
   }
+
+  function paintGlobalPreview() {
+    var p = $("globalPrompt").value;
+    $("globalCount").textContent = p.length + " chars";
+    paintBadge($("globalBadge"), $("globalBadgeText"), p, $("globalSwitch").checked);
+    $("globalSwitchLabel").textContent = $("globalSwitch").checked ? "on" : "off";
+  }
+
+  $("globalPreviewToggle").addEventListener("click", function () {
+    var open = $("globalPreview").classList.toggle("show");
+    this.textContent = open ? "Hide preview" : "Preview";
+    if (open) requestPreview("global", globalPreviewCfg(), $("globalPreview"));
+    fitFrame();
+  });
 
   function renderGlobal() {
     var g = state.global;
     $("globalPrompt").value = g.systemPrompt || "";
     globalDD.set(g.injectMode || "prepend");
-    setBadge($("globalBadge"), $("globalBadgeText"), g.systemPrompt);
-    updateGlobalPreview();
+    $("globalSwitch").checked = !!g.enabled;
+    paintGlobalPreview();
+    schedulePreview("global", globalPreviewCfg, $("globalPreview"), 0);
   }
 
-  function updateGlobalPreview(mode) {
-    var p = $("globalPrompt").value;
-    $("globalCount").textContent = p.length + " chars";
-    $("globalPreview").innerHTML = preview(p, mode || globalDD.get());
+  function saveGlobal() {
+    setBusy(null, true);
+    postSettings({
+      scope: "global",
+      systemPrompt: $("globalPrompt").value,
+      injectMode: globalDD.get(),
+      enabled: $("globalSwitch").checked
+    }).then(function (j) {
+      applyEntry(j.entry);
+      $("globalSwitch").checked = state.global.enabled;
+      paintGlobalPreview();
+      updateCounter();
+      schedulePreview("global", globalPreviewCfg, $("globalPreview"), 0);
+      toast(state.global.enabled ? "Saved · global" : "Saved · global paused");
+    }).catch(function (err) {
+      if (err && err.message === "unauthorized") return;
+      toast("Failed: " + err.message, true);
+    }).then(function () { setBusy(null, false); });
   }
+
+  $("globalPrompt").addEventListener("input", function () {
+    paintGlobalPreview();
+    schedulePreview("global", globalPreviewCfg, $("globalPreview"));
+  });
+  $("globalSwitch").addEventListener("change", function () {
+    var want = this.checked;
+    postSettings({ scope: "global", enabled: want }).then(function (j) {
+      applyEntry(j.entry);
+      $("globalSwitch").checked = state.global.enabled;
+      paintGlobalPreview();
+      updateCounter();
+      schedulePreview("global", globalPreviewCfg, $("globalPreview"), 0);
+    }).catch(function (err) {
+      if (err && err.message === "unauthorized") return;
+      $("globalSwitch").checked = !want;
+      paintGlobalPreview();
+      toast("Failed: " + err.message, true);
+    });
+  });
+  $("globalSave").addEventListener("click", saveGlobal);
+  $("globalClear").addEventListener("click", function () {
+    $("globalPrompt").value = "";
+    saveGlobal();
+  });
+  $("globalFile").addEventListener("change", function () {
+    var input = this;
+    var file = input.files && input.files[0];
+    if (!file) return;
+    file.text().then(function (text) {
+      if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+      $("globalPrompt").value = text;
+      paintGlobalPreview();
+      schedulePreview("global", globalPreviewCfg, $("globalPreview"), 0);
+      fitFrame();
+    }).catch(function () {
+      toast("Failed to read the selected file. Please upload a .txt file.", true);
+    });
+    input.value = "";
+  });
 
   // ---------- combo list ----------
   var comboDDs = {};
 
-  function renderCombos() {
+  function renderCombos(openId) {
     var list = $("comboList");
     comboDDs = {};
     if (!state.combos.length) {
@@ -461,23 +724,38 @@
     }
 
     list.innerHTML = state.combos.map(function (c, i) {
-      var on = !!(c.systemPrompt && c.systemPrompt.trim());
       return '<div class="combo-row" data-i="' + i + '">' +
         '<div class="combo-summary">' +
           '<span class="combo-name">' + esc(c.comboId) + '</span>' +
           (c.targetModel ? '<span class="combo-target">→ ' + esc(c.targetModel) + '</span>' : '') +
-          '<span class="pill' + (on ? " on" : "") + '"><span class="dot"></span>' + (on ? "active" : "empty") + '</span>' +
-          '<span class="preview-text">' + (on ? esc(c.systemPrompt).slice(0, 90) : "not set") + '</span>' +
+          '<span class="pill' + (effective(c.systemPrompt, c.enabled) ? " on" : "") + '"><span class="dot"></span>' +
+            badgeText(c.systemPrompt, c.enabled) + '</span>' +
+          '<span class="preview-text">' + (c.systemPrompt && c.systemPrompt.trim() ? esc(c.systemPrompt).slice(0, 90) : "not set") + '</span>' +
           '<span class="chev"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="m9 18 6-6-6-6"/></svg></span>' +
         '</div>' +
         '<div class="combo-body">' +
+          '<div class="row" style="margin-top:0">' +
+            '<label class="switch" title="Enable or pause this combo prompt">' +
+              '<input type="checkbox" data-role="enabled"' + (c.enabled ? " checked" : "") + ' />' +
+              '<span class="track"></span>' +
+              '<span class="sw-label" data-role="enabled-label">' + (c.enabled ? "on" : "off") + '</span>' +
+            '</label>' +
+            '<input class="field" data-role="identity" placeholder="Public identity ({{display_name}})" value="' + esc(c.displayIdentity || "") + '" />' +
+            '<label class="file-label" title="Load a .txt file into the editor">' +
+              '<input type="file" data-role="file" accept=".txt,text/plain" />Load .txt' +
+            '</label>' +
+            '<span class="spacer"></span>' +
+            '<span class="counter" data-role="count">' + (c.systemPrompt ? c.systemPrompt.length : 0) + ' chars</span>' +
+          '</div>' +
           '<textarea data-role="prompt" placeholder="System prompt for combo ' + esc(c.comboId) + '…">' + esc(c.systemPrompt || "") + '</textarea>' +
           '<div class="row">' +
             '<span data-role="mode-slot"></span>' +
             '<span class="spacer"></span>' +
+            '<button class="btn ghost pv-btn" data-role="preview-toggle" type="button">Preview</button>' +
             '<button class="btn ghost" data-role="clear" type="button">Clear</button>' +
             '<button class="btn" data-role="save" type="button">Save</button>' +
           '</div>' +
+          '<div class="pv" data-role="preview"></div>' +
         '</div>' +
       '</div>';
     }).join("");
@@ -486,77 +764,128 @@
       var i = +row.getAttribute("data-i");
       var combo = state.combos[i];
       var ta = row.querySelector('[data-role="prompt"]');
-      var dd = makeDD(MODES, combo.injectMode || "prepend", function () {});
+      var idInput = row.querySelector('[data-role="identity"]');
+      var sw = row.querySelector('[data-role="enabled"]');
+      var swLabel = row.querySelector('[data-role="enabled-label"]');
+      var countEl = row.querySelector('[data-role="count"]');
+      var pvEl = row.querySelector('[data-role="preview"]');
+      var pvBtn = row.querySelector('[data-role="preview-toggle"]');
+      var dd = makeDD(MODES, combo.injectMode || "prepend", function () { refreshComboPreview(); });
       row.querySelector('[data-role="mode-slot"]').appendChild(dd.el);
       comboDDs[combo.comboId] = dd;
 
-      row.querySelector(".combo-summary").addEventListener("click", function () {
-        row.classList.toggle("open");
+      function cfg() {
+        return {
+          scope: "combo",
+          comboId: combo.comboId,
+          systemPrompt: ta.value,
+          injectMode: dd.get(),
+          displayIdentity: idInput.value,
+          enabled: sw.checked,
+          requestedModel: combo.comboId
+        };
+      }
+      function refreshComboPreview(delay) {
+        countEl.textContent = ta.value.length + " chars";
+        schedulePreview("combo:" + combo.comboId, cfg, pvEl, delay);
+      }
+
+      pvBtn.addEventListener("click", function () {
+        var open = pvEl.classList.toggle("show");
+        pvBtn.textContent = open ? "Hide preview" : "Preview";
+        if (open) refreshComboPreview(0);
         fitFrame();
       });
+
+      row.querySelector(".combo-summary").addEventListener("click", function () {
+        row.classList.toggle("open");
+        if (row.classList.contains("open")) refreshComboPreview(0);
+        fitFrame();
+      });
+
+      ta.addEventListener("input", function () { refreshComboPreview(); });
+      idInput.addEventListener("input", function () { refreshComboPreview(); });
+
+      sw.addEventListener("change", function () {
+        var want = sw.checked;
+        swLabel.textContent = want ? "on" : "off";
+        postSettings({ scope: "combo", comboId: combo.comboId, enabled: want }).then(function (j) {
+          applyEntry(j.entry, combo.comboId);
+          sw.checked = combo.enabled;
+          swLabel.textContent = combo.enabled ? "on" : "off";
+          var pillEl = row.querySelector(".pill");
+          pillEl.classList.toggle("on", effective(combo.systemPrompt, combo.enabled));
+          pillEl.innerHTML = '<span class="dot"></span>' + badgeText(combo.systemPrompt, combo.enabled);
+          updateCounter();
+          refreshComboPreview(0);
+        }).catch(function (err) {
+          if (err && err.message === "unauthorized") return;
+          sw.checked = !want;
+          swLabel.textContent = sw.checked ? "on" : "off";
+          toast("Failed: " + err.message, true);
+        });
+      });
+
       row.querySelector('[data-role="save"]').addEventListener("click", function () {
-        save("combo", combo.comboId, ta.value, dd.get(), row);
+        saveCombo(row, combo, ta, dd, idInput, sw, swLabel);
       });
       row.querySelector('[data-role="clear"]').addEventListener("click", function () {
         ta.value = "";
-        save("combo", combo.comboId, "", dd.get(), row);
+        saveCombo(row, combo, ta, dd, idInput, sw, swLabel);
       });
       ta.addEventListener("keydown", function (e) {
         if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
           e.preventDefault();
-          save("combo", combo.comboId, ta.value, dd.get(), row);
+          saveCombo(row, combo, ta, dd, idInput, sw, swLabel);
         }
       });
+
+      row.querySelector('[data-role="file"]').addEventListener("change", function () {
+        var input = this;
+        var file = input.files && input.files[0];
+        if (!file) return;
+        file.text().then(function (text) {
+          if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+          ta.value = text;
+          refreshComboPreview(0);
+          fitFrame();
+        }).catch(function () {
+          toast("Failed to read the selected file. Please upload a .txt file.", true);
+        });
+        input.value = "";
+      });
+
+      if (openId && combo.comboId === openId) {
+        row.classList.add("open");
+        refreshComboPreview(0);
+      }
     });
   }
 
-  function updateCounter() {
-    var active = state.combos.filter(function (c) { return c.systemPrompt && c.systemPrompt.trim(); }).length;
-    if (state.global.systemPrompt && state.global.systemPrompt.trim()) active += 1;
-    $("counter").textContent = active + " active · " + (state.combos.length + 1) + " targets";
-  }
-
-  function save(scope, comboId, prompt, mode, row) {
-    var body = { scope: scope, systemPrompt: prompt, injectMode: mode };
-    if (scope === "combo") body.comboId = comboId;
-    var btns = row ? row.querySelectorAll("button") : [$("globalSave")];
-    Array.prototype.forEach.call(btns, function (b) { b.disabled = true; });
-
-    fetch("/v1/prompt-inject/set", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body)
-    }).then(function (r) {
-      if (r.status === 401) { location.href = "/login"; throw new Error("unauthorized"); }
-      return r.json().then(function (j) {
-        if (!r.ok) throw new Error(j.error || ("HTTP " + r.status));
-        return j;
-      });
-    }).then(function () {
-      Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
-      if (scope === "global") {
-        state.global.systemPrompt = prompt;
-        state.global.injectMode = mode;
-        renderGlobal();
-      } else {
-        var c = state.combos.filter(function (x) { return x.comboId === comboId; })[0];
-        if (c) { c.systemPrompt = prompt; c.injectMode = mode; }
-        renderCombos();
-        var reopened = $("comboList").querySelector('.combo-row[data-i="' +
-          state.combos.findIndex(function (x) { return x.comboId === comboId; }) + '"]');
-        if (reopened) reopened.classList.add("open");
-      }
+  function saveCombo(row, combo, ta, dd, idInput, sw, swLabel) {
+    setBusy(row, true);
+    postSettings({
+      scope: "combo",
+      comboId: combo.comboId,
+      systemPrompt: ta.value,
+      injectMode: dd.get(),
+      displayIdentity: idInput.value,
+      enabled: sw.checked
+    }).then(function (j) {
+      applyEntry(j.entry, combo.comboId);
+      var stillOpen = row.classList.contains("open");
+      renderCombos(stillOpen ? combo.comboId : null);
       updateCounter();
-      toast(prompt.trim() ? "Saved · " + (scope === "global" ? "global" : comboId) : "Injection off · " + (scope === "global" ? "global" : comboId));
+      toast(effective(ta.value, sw.checked) ? "Saved · " + combo.comboId : "Saved · " + combo.comboId + " (paused)");
       fitFrame();
     }).catch(function (err) {
       if (err && err.message === "unauthorized") return;
       toast("Failed: " + err.message, true);
-      Array.prototype.forEach.call(btns, function (b) { b.disabled = false; });
+      setBusy(row, false);
     });
   }
 
+  // ---------- load ----------
   function load() {
     fetch("/v1/prompt-inject", { credentials: "same-origin" })
       .then(function (r) {
@@ -566,8 +895,27 @@
       .then(function (j) {
         var entries = j.entries || [];
         var g = entries.filter(function (e) { return e.scope === "global"; })[0];
-        state.global = { systemPrompt: (g && g.systemPrompt) || "", injectMode: (g && g.injectMode) || "prepend" };
-        state.combos = entries.filter(function (e) { return e.scope === "combo"; });
+        var gp = (g && g.systemPrompt) || "";
+        var ge = g && typeof g.enabled === "boolean" ? g.enabled : !!gp.trim();
+        state.global = {
+          systemPrompt: gp,
+          injectMode: (g && g.injectMode) || "prepend",
+          enabled: ge,
+          enabledExplicit: !!(g && g.enabledExplicit)
+        };
+        state.combos = entries.filter(function (e) { return e.scope === "combo"; }).map(function (c) {
+          var prompt = c.systemPrompt || "";
+          return {
+            comboId: c.comboId,
+            comboName: c.comboName || c.comboId,
+            targetModel: c.targetModel || "",
+            systemPrompt: prompt,
+            injectMode: c.injectMode || "prepend",
+            enabled: typeof c.enabled === "boolean" ? c.enabled : !!prompt.trim(),
+            enabledExplicit: !!c.enabledExplicit,
+            displayIdentity: c.displayIdentity || ""
+          };
+        });
         renderGlobal();
         renderCombos();
         updateCounter();
@@ -580,15 +928,6 @@
       });
     setTimeout(fitFrame, 60);
   }
-
-  $("globalPrompt").addEventListener("input", function () { updateGlobalPreview(); });
-  $("globalSave").addEventListener("click", function () {
-    save("global", null, $("globalPrompt").value, globalDD.get(), null);
-  });
-  $("globalClear").addEventListener("click", function () {
-    $("globalPrompt").value = "";
-    save("global", null, "", globalDD.get(), null);
-  });
 
   load();
 })();

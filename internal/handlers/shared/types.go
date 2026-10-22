@@ -20,6 +20,11 @@ type ModelInfo struct {
 	StickyLimit  int      // sticky round-robin: consecutive requests per model before rotating (default 1)
 	SystemPrompt string   // prompt injected before forwarding; empty = no injection
 	InjectMode   string   // "prepend" | "append" | "replace" | "hidden_user"; default "prepend"
+	// InjectEnabled is the stored on/off flag for this scope. Legacy rows without
+	// the flag resolve it from prompt presence.
+	InjectEnabled   bool
+	DisplayIdentity string // value for {{display_name}}
+	ComboName       string // internal combo name for {{combo_name}}
 }
 
 // ConnectionData holds parsed fields from the providerConnections.data JSON blob.
