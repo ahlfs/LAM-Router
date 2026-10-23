@@ -273,13 +273,16 @@ FROM request_logs`+timeFilter,
 
 	totalSavedTokens := totalCachedTokens + totalCompressionTokens
 
-	// Fetch byModel breakdown
+	// Fetch byModel breakdown. No top-N cap: the table feeds "Usage by model" and
+	// a LIMIT silently dropped models (and their request counts) whenever a
+	// period had more rows than the cap. The row count equals the number of
+	// distinct models, which is small by construction.
 	rows, err := h.db.Query(`
 SELECT model, COUNT(*), COALESCE(SUM(prompt_tokens), 0), COALESCE(SUM(completion_tokens), 0), COALESCE(SUM(cached_tokens), 0), COALESCE(SUM(compression_tokens), 0), COALESCE(SUM(estimated_cost), 0)
 FROM request_logs`+joinFilter(timeFilter, usageRowCond)+`
 GROUP BY model
-ORDER BY COUNT(*) DESC
-LIMIT 20
+ORDER BY SUM(total_tokens) DESC
+LIMIT 500
 `, timeArgs...)
 	var byModel []map[string]any
 	if err == nil {

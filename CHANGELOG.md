@@ -32,6 +32,22 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Usage by model: audit akurasi + tampilan baru, kartu Model Traffic & Volume dihapus
+- **Kartu "Model Traffic & Volume" dilepas** dari dashboard (komponennya dihapus, bukan sekadar
+  disembunyikan); datanya sudah tercakup tabel "Usage by model".
+- **Audit akurasi (period=all, DB nyata):** total token konsisten — `SUM(total_tokens)` = 205.831.248
+  sama persis dengan `prompt+completion`; tidak ada baris non-model (`auth`/kosong) yang bocor ke tabel.
+  Tiga temuan yang membatasi akurasi: (1) breakdown dibatasi `LIMIT 20` sehingga dari 70 model hanya 20
+  yang tampil dan jumlah request di tabel tidak menjumlah ke total kartu; (2) `requests` ikut menghitung
+  percobaan gagal (404/403/429/400/503/499); (3) `est. cost` dihitung saat request ditulis tanpa diskon
+  cache — pada data ini cached = 95,9% dari prompt tokens, jadi biaya cenderung lebih tinggi dari tagihan
+  sebenarnya. Response yang dilayani cache lokal juga tidak tercatat sebagai request.
+- **Perbaikan backend:** `byModel` tidak lagi dipotong 20 baris (limit 500, urut total token), ditambah
+  test regresi 35 model yang memastikan jumlah baris dan jumlah request cocok dengan kartu.
+- **Tampilan baru:** ringkasan di atas tabel (Models / Requests / Tokens / Est. cost), segmented chart
+  pembagian token antar model (top 7 + `other · N models`, legenda persentase), kolom **Share** per baris,
+  serta catatan kecil bahwa cached sudah termasuk Input dan cost hanya estimasi.
+
 ### Provider Distribution: satu segmented chart
 - Bar progress yang dulu digambar di setiap baris provider dihapus. Sebagai gantinya ada satu
   **stacked segmented chart** di atas daftar: tiap provider jadi satu segmen berwarna (7 provider
