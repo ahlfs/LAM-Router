@@ -32,6 +32,13 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Ikon pada pemilih mode Prompt Inject
+- Dropdown mode (`prepend` / `append` / `replace` / `hidden_user`) kini punya ikon Lucide inline
+  supaya maksud tiap mode langsung terbaca: panah ke garis atas (menempel di atas system prompt klien),
+  panah ke garis bawah (di bawah), ikon `replace` (menimpa), dan balon kutipan (dikirim sebagai giliran
+  user). Path SVG ditanam langsung (ISC, tanpa request jaringan) di `prompt-inject.html`, ikon tombol
+  ikut berganti saat mode dipilih, dan warna mengikuti tema (muted → primary saat terpilih).
+
 ### Katalog model Antigravity disegarkan (diverifikasi ke upstream)
 - **Penyebab 404:** `probeAntigravityModels()` bukan probe — ia menulis ulang daftar statis lama, jadi
   model yang sudah dihapus Google tetap ditawarkan dan setiap panggilan berakhir

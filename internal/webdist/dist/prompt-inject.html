@@ -106,6 +106,15 @@
     font-size: 11px; color: var(--muted-foreground, #8a8f98);
     overflow: hidden; text-overflow: ellipsis;
   }
+  .dd-ico {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 14px; height: 14px; flex-shrink: 0; align-self: center;
+    color: var(--muted-foreground, #8a8f98); transition: color .14s;
+  }
+  .dd-ico svg { width: 14px; height: 14px; }
+  .dd-btn:hover .dd-ico, .dd-item:hover .dd-ico { color: var(--ink-2, #d0d6e0); }
+  .dd-item[aria-selected="true"] .dd-ico { color: var(--primary, #8b93f0); }
+
   .dd-chev { flex-shrink: 0; color: var(--muted-foreground, #8a8f98); transition: transform .16s; display: flex; }
   .dd-btn[aria-expanded="true"] .dd-chev { transform: rotate(180deg); }
 
@@ -375,12 +384,28 @@
     }
   });
 
+  // Lucide (ISC) path data, inlined so the page needs no extra request.
+  var MODE_ICONS = {
+    prepend: '<path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/>',
+    append: '<path d="M12 17V3"/><path d="m6 11 6 6 6-6"/><path d="M19 21H5"/>',
+    replace: '<path d="M14 4a1 1 0 0 1 1-1"/><path d="M15 10a1 1 0 0 1-1-1"/><path d="M21 4a1 1 0 0 0-1-1"/><path d="M21 9a1 1 0 0 1-1 1"/><path d="m3 7 3 3 3-3"/><path d="M6 10V5a2 2 0 0 1 2-2h2"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+    hidden_user: '<path d="M14 14a2 2 0 0 0 2-2V8h-2"/><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z"/><path d="M8 14a2 2 0 0 0 2-2V8H8"/>'
+  };
+
+  function modeIcon(value) {
+    var paths = MODE_ICONS[value];
+    if (!paths) return "";
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' + paths + '</svg>';
+  }
+
   function makeDD(options, value, onChange) {
     var dd = document.createElement("div");
     dd.className = "dd";
     dd.innerHTML =
       '<button class="dd-btn" type="button" aria-haspopup="listbox" aria-expanded="false">' +
-        '<span class="dd-lab"><span class="dd-code"></span><span class="dd-desc"></span></span>' +
+        '<span class="dd-lab"><span class="dd-ico" aria-hidden="true"></span>' +
+          '<span class="dd-code"></span><span class="dd-desc"></span></span>' +
         '<span class="dd-chev">' + CHEV_SVG + '</span>' +
       '</button>' +
       '<div class="dd-pop" role="listbox" tabindex="-1"></div>';
@@ -391,6 +416,7 @@
 
     pop.innerHTML = options.map(function (o) {
       return '<div class="dd-item" role="option" data-v="' + o.value + '" aria-selected="false">' +
+        '<span class="dd-ico" aria-hidden="true">' + modeIcon(o.value) + '</span>' +
         '<span class="dd-code">' + esc(o.value) + '</span>' +
         '<span class="dd-desc">' + esc(o.desc) + '</span>' +
         '<span class="dd-check">' + CHECK_SVG + '</span>' +
@@ -401,6 +427,8 @@
       var o = options.filter(function (x) { return x.value === cur; })[0] || options[0];
       btn.querySelector(".dd-code").textContent = o.value;
       btn.querySelector(".dd-desc").textContent = o.desc;
+      var ico = btn.querySelector(".dd-ico");
+      if (ico) ico.innerHTML = modeIcon(o.value);
       Array.prototype.forEach.call(pop.querySelectorAll(".dd-item"), function (it) {
         it.setAttribute("aria-selected", it.getAttribute("data-v") === cur ? "true" : "false");
         it.classList.remove("kb");
