@@ -1,5 +1,36 @@
 # Changelog
 
+## [Unreleased] — 2026-10-23
+
+### API Usage per API key
+- **Rollup pemakaian per model.** Tabel baru `api_key_model_usage` (`key_id`, `model`, `requests`,
+  `total_tokens`, `cost`, `first_used`, `last_used`) menyimpan akumulasi per key per model, sehingga
+  section usage tidak perlu memindai `request_logs` (yang dipangkas retensi) setiap kali dibuka.
+- **Stamp pemakaian terakhir.** `api_keys.last_used_at` dan `last_model` diisi pada transaksi yang
+  sama dengan akrual token/biaya, jadi "model terakhir" tidak pernah tertinggal dari counter.
+- **Satu transaksi.** `IncrementApiKeyUsage` sekarang menulis counter lifetime, stamp, dan rollup
+  dalam satu transaksi (sebelumnya satu UPDATE tanpa rollup). Biaya terukur +12 µs per request.
+- **Backfill sekali jalan.** `BackfillKeyModelUsage` mengisi rollup dari `request_logs` saat upgrade
+  pertama (hanya `api_key_id` yang benar-benar ada di `api_keys`, `status_code < 400`, nilai bukan
+  model seperti `auth` dilewati). Idempoten: panggilan berikutnya no-op, tidak pernah dobel.
+- **Endpoint baru.** `GET /v1/keys/usage` mengembalikan per key: `lastModel`, `lastUsedAt`,
+  `usageTokens`, `usageCost`, `trackedTokens`, dan 5 model teratas. Biaya baca O(jumlah key).
+- **Recount eksplisit.** `POST /v1/keys/usage/recount` membangun ulang counter lifetime dari rollup,
+  untuk satu key (`{"id":"key_..."}`) atau semua key (body kosong). Tidak pernah otomatis, supaya
+  reset manual tidak dibatalkan diam-diam.
+- **Reset konsisten.** `resetUsage` juga menghapus rollup dan stamp, jadi breakdown tidak hidup lebih
+  lama dari counter-nya.
+- **Section "API Usage"** di halaman Endpoint & Keys: model terakhir, aktivitas terakhir, total token
+  per model, penanda `counter drift` bila counter dan rollup berbeda, plus tombol recount per key dan
+  recount semua key.
+
+### Table & List Density
+- **Kontrol density sekarang benar-benar bekerja.** Sebelumnya `uiDensity` hanya tersimpan di
+  localStorage tanpa consumer. Sekarang atribut `data-density` dipasang sebelum paint dari
+  `index.html`, dan CSS memakai variabel padding pada kit tabel (`data-slot="table-cell"` /
+  `table-head`) serta baris list (`lr-list-row`): sel 12px→18px, header 10px→14px, baris list
+  8px→16px saat mode Cozy.
+
 ## [v2.3.1] — 2026-10-22
 
 ### Perbaikan audit Settings

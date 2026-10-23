@@ -160,17 +160,8 @@ func (r *Repo) GetApiKeyName(id string) string {
 	return name
 }
 
-// IncrementApiKeyUsage increments token usage and cost for an API key in the api_keys table.
-func (r *Repo) IncrementApiKeyUsage(keyOrID string, tokens int, cost float64) error {
-	if keyOrID == "" {
-		return nil
-	}
-	_, err := r.db.Exec(
-		"UPDATE api_keys SET usage_tokens = usage_tokens + ?, usage_cost = usage_cost + ? WHERE key = ? OR id = ?",
-		tokens, cost, keyOrID, keyOrID,
-	)
-	return err
-}
+// IncrementApiKeyUsage lives in key_usage.go: it books tokens, cost, the
+// last-used stamp and the per-model rollup in one transaction.
 
 // GetProviderConnectionByID retrieves a single provider connection by primary key.
 // Returns nil, nil when no row matches.

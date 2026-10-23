@@ -97,6 +97,19 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS api_key_model_usage (
+    key_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    requests INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    cost REAL NOT NULL DEFAULT 0,
+    first_used INTEGER NOT NULL DEFAULT 0,
+    last_used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key_id, model)
+);
+
+CREATE INDEX IF NOT EXISTS idx_akmu_key_last ON api_key_model_usage(key_id, last_used DESC);
+
 CREATE TABLE IF NOT EXISTS request_logs (
     id TEXT PRIMARY KEY,
     api_key_id TEXT,
@@ -239,6 +252,12 @@ CREATE TABLE IF NOT EXISTS model_health (
 		_, _ = dbConn.Exec(`ALTER TABLE fallback_rules ADD COLUMN display_identity TEXT`)
 		_, _ = dbConn.Exec(`UPDATE provider_models SET context_source = 'heuristic' WHERE COALESCE(context_source, '') = ''`)
 		migrateRequestLogAPIKeys(dbConn)
+		// API usage rollup: last-used stamp on the key + per-model accumulators.
+		_, _ = dbConn.Exec(`ALTER TABLE api_keys ADD COLUMN last_used_at INTEGER DEFAULT 0`)
+		_, _ = dbConn.Exec(`ALTER TABLE api_keys ADD COLUMN last_model TEXT DEFAULT ''`)
+		if _, bfErr := db.NewRepo(dbConn).BackfillKeyModelUsage(); bfErr == nil {
+			// Seeded from request_logs on first upgrade; a no-op afterwards.
+		}
 		repairModelContextWindows(dbConn)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN isActive INTEGER DEFAULT 1`)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN enabled INTEGER DEFAULT 1`)
@@ -445,6 +464,8 @@ func RegisterV1Routes(r chi.Router, repo *db.Repo, ts *shared.TokenSaverConfig) 
 			}
 		})
 		admin.HandleFunc("/v1/keys/{id}/credit", h.HandleKeyAddCredit)
+		admin.HandleFunc("/v1/keys/usage", h.HandleKeysUsage)
+		admin.HandleFunc("/v1/keys/usage/recount", h.HandleKeysUsageRecount)
 		admin.HandleFunc("/v1/keys/{id}", func(w http.ResponseWriter, req *http.Request) {
 			if req.Method == http.MethodDelete {
 				h.HandleKeyDelete(w, req)

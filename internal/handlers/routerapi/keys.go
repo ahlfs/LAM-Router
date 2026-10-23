@@ -244,9 +244,11 @@ func (h *RouterAPIHandler) HandleKeyUpdate(w http.ResponseWriter, r *http.Reques
 	if body.ResetUsage != nil && *body.ResetUsage {
 		_, err = h.db.Exec(`
 UPDATE api_keys 
-SET name = ?, enabled = ?, rate_limit = ?, quota_limit = ?, credit_limit = ?, allowed_models = ?, usage_tokens = 0, usage_cost = 0
+SET name = ?, enabled = ?, rate_limit = ?, quota_limit = ?, credit_limit = ?, allowed_models = ?, usage_tokens = 0, usage_cost = 0, last_used_at = 0, last_model = ''
 WHERE id = ?
 `, name, newEnabledInt, rateLimit, quotaLimit, creditLimit, newModelsStr, id)
+		// The per-model breakdown must not outlive the counters it explains.
+		_, _ = h.db.Exec(`DELETE FROM api_key_model_usage WHERE key_id = ?`, id)
 		k.UsageTokens = 0
 		k.UsageCost = 0
 	} else {

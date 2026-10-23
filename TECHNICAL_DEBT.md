@@ -22,6 +22,25 @@ Documented technical debt, concurrency risks, resource leaks, and planned archit
 
 ---
 
+## 🟡 Dist Bundle Patches (repo ini tanpa source frontend)
+
+`web/` hanya berisi hasil build. Sumber React ada di `../LAM-Router-staging/apps/web` (tidak ada di
+repo ini maupun di mesin ini), jadi dua perubahan UI terakhir adalah patch langsung pada bundle dist
+dan **hilang** kalau nanti `make build-ui` dijalankan dari source:
+
+1. **Table & List Density** — `index.html` (boot script `id="lr-density-boot"`), `index-*.css`
+   (blok `/* lr-density v1 */`), `settings-*.js`, `logs-*.js`, `LogDetailSheet-*.js`
+   (class `lr-list-row`). Reapply: `python3 ~/workspace/lr-density-patch.py --apply && make build`.
+2. **Section API Usage + tombol recount** — chunk `keys-*.js` (fungsi `LrApiUsage`, anchor
+   `e.jsx(ze,{totalKeys:...})`). Reapply: `python3 ~/workspace/lr-keys-usage-ui.py --apply && make build`.
+
+Keduanya idempoten (marker), menyimpan backup di `~/lam-router-backups/`, dan divalidasi lewat
+`node --check` + `import()` chunk + pemeriksaan DOM hidup. Konsekuensi yang harus diterima: script
+patch tidak tercakup `go test`, dan begitu source React dipulihkan kedua patch harus dipindah ke
+source lalu tambalan dist dibuang.
+
+---
+
 ## ✅ Resolved Items
 
 - **CodeBuddy OAuth Configuration**: `codebuddy-cn` and `codebuddy-intl` OAuth token refresh configuration registered in `KnownOAuthConfigs` (`internal/providers/oauth.go`), alongside its dedicated stream executor (`internal/proxy/executor/codebuddy.go`).

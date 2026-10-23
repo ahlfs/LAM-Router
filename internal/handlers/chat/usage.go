@@ -291,7 +291,7 @@ func (h *ChatHandler) logUsage(info *UsageLogInfo, usage *translator.OpenAIUsage
 	// Update token usage and cost on the client API key (skipped when token
 	// telemetry is disabled, because there are no tokens to bill).
 	if info.ClientAPIKey != "" && prefs.RecordTokenUsage {
-		if err := h.Repo.IncrementApiKeyUsage(info.ClientAPIKey, totalTokens, cost); err != nil {
+		if err := h.Repo.IncrementApiKeyUsage(info.ClientAPIKey, totalTokens, cost, info.Model); err != nil {
 			log.Error("usage", "increment api key usage failed", "key", info.ClientAPIKey, "error", err)
 		}
 	}

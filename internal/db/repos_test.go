@@ -83,7 +83,33 @@ func setupTestDB(t *testing.T) (*sql.DB, func()) {
 			credit_limit REAL DEFAULT 0,
 			usage_cost REAL DEFAULT 0,
 			allowed_models TEXT,
+			last_used_at INTEGER DEFAULT 0,
+			last_model TEXT DEFAULT '',
 			created_at INTEGER NOT NULL
+		);`,
+		`CREATE TABLE IF NOT EXISTS api_key_model_usage (
+			key_id TEXT NOT NULL,
+			model TEXT NOT NULL,
+			requests INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			cost REAL NOT NULL DEFAULT 0,
+			first_used INTEGER NOT NULL DEFAULT 0,
+			last_used INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (key_id, model)
+		);`,
+		`CREATE TABLE IF NOT EXISTS request_logs (
+			id TEXT PRIMARY KEY,
+			api_key_id TEXT,
+			api_key_name TEXT,
+			provider_id TEXT NOT NULL,
+			model TEXT NOT NULL,
+			prompt_tokens INTEGER NOT NULL DEFAULT 0,
+			completion_tokens INTEGER NOT NULL DEFAULT 0,
+			total_tokens INTEGER NOT NULL DEFAULT 0,
+			status_code INTEGER NOT NULL,
+			latency_ms INTEGER NOT NULL,
+			created_at INTEGER NOT NULL,
+			estimated_cost REAL DEFAULT 0
 		);`,
 	}
 
@@ -109,8 +135,8 @@ func TestIncrementApiKeyUsage(t *testing.T) {
 
 	repo := NewRepo(db)
 
-	// Increment usage by 250 tokens and 0.02 cost
-	if err := repo.IncrementApiKeyUsage("lam-live-test", 250, 0.02); err != nil {
+	// Increment usage by 250 tokens and 0.02 cost, attributed to one model
+	if err := repo.IncrementApiKeyUsage("lam-live-test", 250, 0.02, "gemini-3.8-flash-high"); err != nil {
 		t.Fatalf("IncrementApiKeyUsage failed: %v", err)
 	}
 
@@ -127,6 +153,226 @@ func TestIncrementApiKeyUsage(t *testing.T) {
 	}
 	if apiKey.UsageCost < 0.069 || apiKey.UsageCost > 0.071 {
 		t.Errorf("expected UsageCost ~0.07, got %f", apiKey.UsageCost)
+	}
+
+	// The rollup row and the last-used stamp are written in the same transaction.
+	var model string
+	var tokens, requests int64
+	if err := db.QueryRow(`SELECT model, total_tokens, requests FROM api_key_model_usage WHERE key_id = 'k-1'`).
+		Scan(&model, &tokens, &requests); err != nil {
+		t.Fatalf("expected rollup row: %v", err)
+	}
+	if model != "gemini-3.8-flash-high" || tokens != 250 || requests != 1 {
+		t.Errorf("unexpected rollup row: model=%q tokens=%d requests=%d", model, tokens, requests)
+	}
+
+	var lastModel string
+	var lastUsed int64
+	if err := db.QueryRow(`SELECT COALESCE(last_model, ''), COALESCE(last_used_at, 0) FROM api_keys WHERE id = 'k-1'`).
+		Scan(&lastModel, &lastUsed); err != nil {
+		t.Fatalf("read last-used stamps: %v", err)
+	}
+	if lastModel != "gemini-3.8-flash-high" || lastUsed == 0 {
+		t.Errorf("expected last model/at to be stamped, got %q / %d", lastModel, lastUsed)
+	}
+}
+
+func TestIncrementApiKeyUsageAccumulatesPerModel(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := db.Exec(`INSERT INTO api_keys (id, key, name, enabled, created_at) VALUES
+		('k-2', 'lam-live-two', 'Two', 1, 1720000000000);`)
+	if err != nil {
+		t.Fatalf("seed api_keys: %v", err)
+	}
+	repo := NewRepo(db)
+
+	if err := repo.IncrementApiKeyUsage("lam-live-two", 100, 0.01, "model-a"); err != nil {
+		t.Fatalf("first increment: %v", err)
+	}
+	if err := repo.IncrementApiKeyUsage("lam-live-two", 250, 0.02, "model-a"); err != nil {
+		t.Fatalf("second increment: %v", err)
+	}
+	if err := repo.IncrementApiKeyUsage("lam-live-two", 40, 0.5, "model-b"); err != nil {
+		t.Fatalf("third increment: %v", err)
+	}
+	// Non-model values must not create rollup rows.
+	if err := repo.IncrementApiKeyUsage("lam-live-two", 10, 0, "auth"); err != nil {
+		t.Fatalf("auth increment: %v", err)
+	}
+
+	rows, err := repo.KeyUsageSummary(5)
+	if err != nil {
+		t.Fatalf("KeyUsageSummary: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 key, got %d", len(rows))
+	}
+	k := rows[0]
+	if len(k.Models) != 2 {
+		t.Fatalf("expected 2 models (auth excluded), got %d: %+v", len(k.Models), k.Models)
+	}
+	if k.Models[0].Model != "model-a" || k.Models[0].TotalTokens != 350 || k.Models[0].Requests != 2 {
+		t.Errorf("unexpected top model: %+v", k.Models[0])
+	}
+	if k.TrackedTokens != 390 {
+		t.Errorf("expected tracked tokens 390, got %d", k.TrackedTokens)
+	}
+	if k.UsageTokens != 400 {
+		t.Errorf("expected lifetime counter 400 (auth tokens still billed), got %d", k.UsageTokens)
+	}
+	if k.LastModel != "model-b" {
+		t.Errorf("expected last model model-b, got %q", k.LastModel)
+	}
+}
+
+func TestBackfillKeyModelUsageIsIdempotent(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := db.Exec(`INSERT INTO api_keys (id, key, name, enabled, created_at) VALUES
+		('k-3', 'lam-live-three', 'Three', 1, 1720000000000);`)
+	if err != nil {
+		t.Fatalf("seed api_keys: %v", err)
+	}
+	for i, row := range []struct {
+		id      string
+		keyID   string
+		model   string
+		tokens  int64
+		status  int
+		created int64
+	}{
+		{"r1", "k-3", "model-x", 100, 200, 1000},
+		{"r2", "k-3", "model-x", 200, 200, 2000},
+		{"r3", "k-3", "model-y", 50, 200, 3000},
+		{"r4", "k-3", "auth", 0, 401, 4000},            // must be skipped
+		{"r5", "other-key", "model-x", 999, 200, 5000}, // unknown key: skipped
+	} {
+		if _, err := db.Exec(`INSERT INTO request_logs (id, api_key_id, provider_id, model, total_tokens, status_code, latency_ms, created_at)
+			VALUES (?, ?, 'gemini', ?, ?, ?, 10, ?)`, row.id, row.keyID, row.model, row.tokens, row.status, row.created); err != nil {
+			t.Fatalf("seed request_logs row %d: %v", i, err)
+		}
+	}
+
+	repo := NewRepo(db)
+	affected, err := repo.BackfillKeyModelUsage()
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if affected != 2 {
+		t.Errorf("expected 2 rollup rows, got %d", affected)
+	}
+
+	var total int64
+	if err := db.QueryRow(`SELECT COALESCE(SUM(total_tokens),0) FROM api_key_model_usage WHERE key_id = 'k-3'`).Scan(&total); err != nil {
+		t.Fatalf("sum rollup: %v", err)
+	}
+	if total != 350 {
+		t.Errorf("expected 350 tokens from logs, got %d", total)
+	}
+
+	// Second call must not double count.
+	affected, err = repo.BackfillKeyModelUsage()
+	if err != nil {
+		t.Fatalf("second backfill: %v", err)
+	}
+	if affected != 0 {
+		t.Errorf("expected no-op on second backfill, got %d rows", affected)
+	}
+	if err := db.QueryRow(`SELECT COALESCE(SUM(total_tokens),0) FROM api_key_model_usage`).Scan(&total); err != nil {
+		t.Fatalf("sum rollup after second call: %v", err)
+	}
+	if total != 350 {
+		t.Errorf("expected still 350 tokens, got %d", total)
+	}
+
+	var lastModel string
+	if err := db.QueryRow(`SELECT COALESCE(last_model,'') FROM api_keys WHERE id = 'k-3'`).Scan(&lastModel); err != nil {
+		t.Fatalf("read last_model: %v", err)
+	}
+	if lastModel != "model-y" {
+		t.Errorf("expected last model model-y (latest log), got %q", lastModel)
+	}
+}
+
+func TestRecountApiKeyUsage(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := db.Exec(`INSERT INTO api_keys (id, key, name, enabled, usage_tokens, usage_cost, created_at) VALUES
+		('k-5', 'lam-live-five', 'Five', 1, 999999, 42.5, 1720000000000);`)
+	if err != nil {
+		t.Fatalf("seed api_keys: %v", err)
+	}
+	repo := NewRepo(db)
+	if err := repo.IncrementApiKeyUsage("lam-live-five", 120, 0.12, "model-r"); err != nil {
+		t.Fatalf("increment: %v", err)
+	}
+
+	// Corrupt the counters the way a pre-rollup key looks, then recount.
+	if _, err := db.Exec(`UPDATE api_keys SET usage_tokens = 1000, usage_cost = 1.0 WHERE id = 'k-5'`); err != nil {
+		t.Fatalf("corrupt counters: %v", err)
+	}
+
+	res, err := repo.RecountApiKeyUsage("k-5")
+	if err != nil {
+		t.Fatalf("recount: %v", err)
+	}
+	if len(res) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(res))
+	}
+	if res[0].TokensBefore != 1000 || res[0].TokensAfter != 120 {
+		t.Errorf("unexpected tokens before/after: %d -> %d", res[0].TokensBefore, res[0].TokensAfter)
+	}
+	if res[0].CostBefore != 1.0 || res[0].CostAfter < 0.119 || res[0].CostAfter > 0.121 {
+		t.Errorf("unexpected cost before/after: %f -> %f", res[0].CostBefore, res[0].CostAfter)
+	}
+	if res[0].Models != 1 {
+		t.Errorf("expected 1 model, got %d", res[0].Models)
+	}
+
+	var tokens int64
+	if err := db.QueryRow(`SELECT usage_tokens FROM api_keys WHERE id = 'k-5'`).Scan(&tokens); err != nil {
+		t.Fatalf("read counter: %v", err)
+	}
+	if tokens != 120 {
+		t.Errorf("expected counter rebuilt to 120, got %d", tokens)
+	}
+
+	// Recounting every key is the empty-ID form.
+	all, err := repo.RecountApiKeyUsage("")
+	if err != nil {
+		t.Fatalf("recount all: %v", err)
+	}
+	if len(all) != 1 {
+		t.Errorf("expected recount-all to return 1 key, got %d", len(all))
+	}
+}
+
+func TestResetKeyModelUsage(t *testing.T) {
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+
+	_, err := db.Exec(`INSERT INTO api_keys (id, key, name, enabled, created_at) VALUES
+		('k-4', 'lam-live-four', 'Four', 1, 1720000000000);`)
+	if err != nil {
+		t.Fatalf("seed api_keys: %v", err)
+	}
+	repo := NewRepo(db)
+	if err := repo.IncrementApiKeyUsage("lam-live-four", 10, 0.001, "model-z"); err != nil {
+		t.Fatalf("increment: %v", err)
+	}
+	if err := repo.ResetKeyModelUsage("k-4"); err != nil {
+		t.Fatalf("reset: %v", err)
+	}
+	rows, err := repo.KeyUsageSummary(5)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if len(rows) != 1 || len(rows[0].Models) != 0 || rows[0].TrackedTokens != 0 {
+		t.Errorf("expected empty rollup after reset, got %+v", rows)
 	}
 }
 
