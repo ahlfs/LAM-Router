@@ -23,7 +23,9 @@ func (h *RouterAPIHandler) HandleKeysUsage(w http.ResponseWriter, r *http.Reques
 	}
 
 	repo := db.NewRepo(h.db)
-	keys, err := repo.KeyUsageSummary(5)
+	// The dashboard renders the breakdown inside a modal, so return every model
+	// the key has used rather than a top-N teaser.
+	keys, err := repo.KeyUsageSummary(50)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
 		return

@@ -14,15 +14,17 @@
   pertama (hanya `api_key_id` yang benar-benar ada di `api_keys`, `status_code < 400`, nilai bukan
   model seperti `auth` dilewati). Idempoten: panggilan berikutnya no-op, tidak pernah dobel.
 - **Endpoint baru.** `GET /v1/keys/usage` mengembalikan per key: `lastModel`, `lastUsedAt`,
-  `usageTokens`, `usageCost`, `trackedTokens`, dan 5 model teratas. Biaya baca O(jumlah key).
-- **Recount eksplisit.** `POST /v1/keys/usage/recount` membangun ulang counter lifetime dari rollup,
-  untuk satu key (`{"id":"key_..."}`) atau semua key (body kosong). Tidak pernah otomatis, supaya
-  reset manual tidak dibatalkan diam-diam.
+  `usageTokens`, `usageCost`, `trackedTokens`, dan hingga 50 model (ditampilkan di modal).
+  Biaya baca O(jumlah key).
+- **Recount eksplisit (API).** `POST /v1/keys/usage/recount` membangun ulang counter lifetime dari
+  rollup, untuk satu key (`{"id":"key_..."}`) atau semua key (body kosong). Tidak pernah otomatis,
+  supaya reset manual tidak dibatalkan diam-diam, dan sengaja tidak diekspos sebagai tombol di UI.
 - **Reset konsisten.** `resetUsage` juga menghapus rollup dan stamp, jadi breakdown tidak hidup lebih
   lama dari counter-nya.
 - **Section "API Usage"** di halaman Endpoint & Keys: model terakhir, aktivitas terakhir, total token
-  per model, penanda `counter drift` bila counter dan rollup berbeda, plus tombol recount per key dan
-  recount semua key.
+  dan biaya per key, penanda `counter drift` bila counter dan rollup berbeda, plus tombol `models · N`
+  yang membuka rincian per model (token, jumlah request, biaya) di dalam modal — bukan ditumpuk di
+  halaman, supaya key dengan banyak model tidak merusak layout.
 
 ### Table & List Density
 - **Kontrol density sekarang benar-benar bekerja.** Sebelumnya `uiDensity` hanya tersimpan di

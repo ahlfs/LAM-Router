@@ -31,7 +31,7 @@ dan **hilang** kalau nanti `make build-ui` dijalankan dari source:
 1. **Table & List Density** — `index.html` (boot script `id="lr-density-boot"`), `index-*.css`
    (blok `/* lr-density v1 */`), `settings-*.js`, `logs-*.js`, `LogDetailSheet-*.js`
    (class `lr-list-row`). Reapply: `python3 ~/workspace/lr-density-patch.py --apply && make build`.
-2. **Section API Usage + tombol recount** — chunk `keys-*.js` (fungsi `LrApiUsage`, anchor
+2. **Section API Usage (rincian model di modal)** — chunk `keys-*.js` (fungsi `LrApiUsage`, anchor
    `e.jsx(ze,{totalKeys:...})`). Reapply: `python3 ~/workspace/lr-keys-usage-ui.py --apply && make build`.
 
 Keduanya idempoten (marker), menyimpan backup di `~/lam-router-backups/`, dan divalidasi lewat
