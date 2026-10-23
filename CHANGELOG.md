@@ -32,6 +32,21 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Priority connection: renumber 1..N dan demosi hanya untuk error akun
+- **Diagnosis "priority 61":** `DemoteConnectionToLowest` menetapkan `MAX(priority)+1` setiap kali
+  upstream gagal, dan tidak ada jalur yang menaikkan kembali saat sukses. Priority jadi penghitung
+  kegagalan: dua akun antigravity yang bergantian gagal akan naik terus (1,2 → 60,61 → 62,63 …).
+  Demosi juga dipicu error yang bukan salah akun (400/404/413/422/499).
+- **Perbaikan:** demosi sekarang memindahkan koneksi ke urutan terakhir lalu **renumber 1..N** dalam
+  satu transaksi — urutan seleksi identik, nomor tidak lagi melar. Demosi dilewati untuk
+  400/404/413/422/499 (dicatat sebagai "not demoting connection: request-level error"),
+  sedangkan 401/403/429/5xx dan kegagalan jaringan tetap didemosi.
+- **Data lama dinormalisasi** (urutan dipertahankan): antigravity 60,61 → 1,2; river 2 → 1.
+- **Test:** `TestDemoteConnectionToLowest_RenumbersQueue` (3 koneksi, dua kali demosi, nomor tetap 1..N,
+  termasuk koneksi yang sudah tidak ada) dan `TestConnectionFaultStatus` (klasifikasi status).
+  Verifikasi live: request ke model yang tidak ada → 404, priority tetap 1,2 dan log menampilkan
+  "not demoting" (sebelumnya ini yang menaikkan nomor).
+
 ### Usage by model: audit akurasi + tampilan baru, kartu Model Traffic & Volume dihapus
 - **Kartu "Model Traffic & Volume" dilepas** dari dashboard (komponennya dihapus, bukan sekadar
   disembunyikan); datanya sudah tercakup tabel "Usage by model".

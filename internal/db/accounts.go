@@ -35,28 +35,59 @@ func (r *Repo) LockConnectionModel(connID, model string, durationSec int, backof
 	return nil
 }
 
-// DemoteConnectionToLowest demotes a failed connection to the lowest priority (highest number)
-// for its provider across both providers and providerConnections tables.
+// DemoteConnectionToLowest moves a failed connection to the end of its provider's
+// priority queue and renumbers the queue 1..N.
+//
+// The previous version assigned MAX(priority)+1, which turned priority into a
+// failure counter: a provider whose accounts flapped back and forth drifted to
+// 60, 61, ... and kept climbing forever, even though the only thing that
+// changed was "this connection goes last". Renumbering keeps the resulting
+// order identical, keeps the numbers meaningful for the UI, and stops the drift.
 func (r *Repo) DemoteConnectionToLowest(connID, provider string) error {
-	var maxPriority int
-	// Find current max priority for this provider
-	err := r.db.QueryRow(`
-		SELECT COALESCE(MAX(p), 0) FROM (
-			SELECT priority as p FROM providers WHERE LOWER(provider_id) = LOWER(?)
-			UNION ALL
-			SELECT priority as p FROM providerConnections WHERE LOWER(provider) = LOWER(?)
-		) WHERE p < 999999
-	`, provider, provider).Scan(&maxPriority)
+	rows, err := r.db.Query(`
+		SELECT id FROM providerConnections
+		WHERE LOWER(provider) = LOWER(?)
+		ORDER BY CASE WHEN priority IS NULL THEN 999999 ELSE priority END ASC, updatedAt DESC
+	`, provider)
 	if err != nil {
-		maxPriority = 0
+		return fmt.Errorf("list connections for %s: %w", provider, err)
 	}
 
-	newPriority := maxPriority + 1
-	now := time.Now().UTC().Format(time.RFC3339)
+	ordered := make([]string, 0, 4)
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan connection id: %w", err)
+		}
+		if id != connID {
+			ordered = append(ordered, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate connections for %s: %w", provider, err)
+	}
+	rows.Close()
+	ordered = append(ordered, connID)
 
-	_, _ = r.db.Exec(`UPDATE providers SET priority = ? WHERE id = ? OR provider_id = ?`, newPriority, connID, connID)
-	_, _ = r.db.Exec(`UPDATE providerConnections SET priority = ?, updatedAt = ? WHERE id = ?`, newPriority, now, connID)
-	return nil
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin demote transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i, id := range ordered {
+		priority := i + 1
+		if _, err := tx.Exec(`UPDATE providers SET priority = ? WHERE id = ?`, priority, id); err != nil {
+			return fmt.Errorf("update provider priority for %s: %w", id, err)
+		}
+		if _, err := tx.Exec(`UPDATE providerConnections SET priority = ?, updatedAt = ? WHERE id = ?`, priority, now, id); err != nil {
+			return fmt.Errorf("update connection priority for %s: %w", id, err)
+		}
+	}
+	return tx.Commit()
 }
 
 // IsConnectionModelLocked checks whether the given connection has an active

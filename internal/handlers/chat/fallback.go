@@ -107,9 +107,17 @@ func (h *ChatHandler) handleAccountFallback(
 		}
 		var ue *upstreamError
 		if errors.As(lastErr, &ue) {
-			// Demote the failed connection to the bottom of the priority queue
-			_ = h.Repo.DemoteConnectionToLowest(c.ID, provider)
-			log.Warn("fallback", "demoted failed connection to lowest priority", "conn", c.ID, "provider", provider, "status", ue.StatusCode)
+			// Demote the failed connection to the end of the priority queue, but only
+			// when the status actually says something about the account. A 400/404/
+			// 413/422 is about the request or the model, and 499 is the client hanging
+			// up: demoting for those sends healthy accounts to the back of the queue
+			// for a failure they did not cause.
+			if connectionFaultStatus(ue.StatusCode) {
+				_ = h.Repo.DemoteConnectionToLowest(c.ID, provider)
+				log.Warn("fallback", "demoted failed connection to lowest priority", "conn", c.ID, "provider", provider, "status", ue.StatusCode)
+			} else {
+				log.Info("fallback", "not demoting connection: request-level error", "conn", c.ID, "provider", provider, "status", ue.StatusCode)
+			}
 
 			if providers.RetryableStatusCodes[ue.StatusCode] {
 				// Extract error text from upstream body for classification
@@ -451,4 +459,19 @@ func formatRetryAfter(isoTimestamp string) string {
 		parts = append(parts, fmt.Sprintf("%ds", s))
 	}
 	return "reset after " + strings.Join(parts, " ")
+}
+
+// connectionFaultStatus reports whether an upstream status is evidence that the
+// account behind the connection is in trouble (auth, quota, rate limit or an
+// upstream failure) rather than the request or the requested model being wrong.
+func connectionFaultStatus(code int) bool {
+	switch code {
+	case http.StatusBadRequest,
+		http.StatusNotFound,
+		http.StatusRequestEntityTooLarge,
+		http.StatusUnprocessableEntity,
+		499: // client closed request
+		return false
+	}
+	return true
 }
