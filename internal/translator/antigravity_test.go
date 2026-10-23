@@ -128,11 +128,16 @@ func TestNormalizeAntigravityModel(t *testing.T) {
 		{"claude-sonnet-4.6", "claude-sonnet-4-6"},
 		{"gemini-3.8-flash", "gemini-3.8-flash-tiered"},
 		{"gemini-3.8-flash-high", "gemini-3.8-flash-tiered"},
-		{"gemini-3.7-flash", "gemini-3.7-flash-tiered"},
-		{"gemini-3.7-flash-high", "gemini-3.7-flash-tiered"},
-		{"gemini-3.7-flash-medium", "gemini-3.7-flash-tiered"},
-		{"gemini-3.7-flash-low", "gemini-3.7-flash-tiered"},
-		{"gemini-3.6-flash-high", "gemini-3.6-flash-tiered"},
+		// 3.7/3.6 entities were removed upstream; the old names redirect to 3.8.
+		{"gemini-3.7-flash", "gemini-3.8-flash-tiered"},
+		{"gemini-3.7-flash-high", "gemini-3.8-flash-tiered"},
+		{"gemini-3.7-flash-medium", "gemini-3.8-flash-tiered"},
+		{"gemini-3.7-flash-low", "gemini-3.8-flash-tiered"},
+		{"gemini-3.6-flash-high", "gemini-3.8-flash-tiered"},
+		{"gemini-3.8-flash-agent", "gemini-3-flash-agent"},
+		{"gemini-pro-agent", "gemini-3-flash-agent"},
+		{"gemini-2.5-pro", "gemini-3-flash-agent"},
+		{"gpt-oss-120b-high", "gpt-oss-120b-medium"},
 		{"gemini-3-flash-agent", "gemini-3-flash-agent"},
 		{"ag/gemini-3.8-flash-high", "gemini-3.8-flash-tiered"},
 	}
@@ -271,19 +276,18 @@ func TestStripCompetitivePrompts(t *testing.T) {
 	}
 }
 
+// validBackendModels lists the upstream entities that still exist. Removed ids
+// (gemini-3.7-flash-tiered, gemini-3.6-flash-tiered, gemini-pro-agent,
+// gemini-3.1-pro-*) must not appear as synonym targets: a synonym pointing at a
+// dead entity turns a legacy model name into an upstream 404.
 func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 	validBackendModels := map[string]bool{
-		"gemini-3.8-flash-tiered":    true,
-		"gemini-3.7-flash-tiered":    true,
-		"gemini-3.6-flash-tiered":    true,
-		"gemini-3-flash-agent":       true,
-		"gemini-pro-agent":           true,
-		"gemini-3.1-pro-high":        true,
-		"gemini-3.1-pro-low":         true,
-		"claude-sonnet-4-6":          true,
-		"claude-opus-4-6-thinking":   true,
-		"gpt-oss-120b-medium":        true,
-		"gemini-3.1-flash-image":     true,
+		"gemini-3.8-flash-tiered":  true,
+		"gemini-3-flash-agent":     true,
+		"claude-sonnet-4-6":        true,
+		"claude-opus-4-6-thinking": true,
+		"gpt-oss-120b-medium":      true,
+		"gemini-3.1-flash-image":   true,
 	}
 
 	for alias, targetModel := range translator.AntigravityModelSynonyms {
@@ -295,7 +299,7 @@ func TestNormalizeAntigravityModel_AllSynonymsValid(t *testing.T) {
 
 func TestWrapForAntigravity_ThinkingConfigInjection(t *testing.T) {
 	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"Hello"}]}]}`)
-	
+
 	// Test 3.8 flash high
 	wrapped, err := translator.WrapForAntigravity(body, "my-project", "gemini-3.8-flash-high")
 	if err != nil {
@@ -329,7 +333,7 @@ func TestWrapForAntigravity_ThinkingConfigInjection(t *testing.T) {
 		t.Errorf("expected includeThoughts true")
 	}
 
-	// Test prefix stripping and 3.6 flash
+	// Test prefix stripping and the legacy 3.6 alias (now served by 3.8)
 	wrapped36, err := translator.WrapForAntigravity(body, "my-project", "ag/gemini-3.6-flash-low")
 	if err != nil {
 		t.Fatalf("WrapForAntigravity error: %v", err)
@@ -337,8 +341,8 @@ func TestWrapForAntigravity_ThinkingConfigInjection(t *testing.T) {
 	if err := json.Unmarshal(wrapped36, &env); err != nil {
 		t.Fatalf("Unmarshal envelope error: %v", err)
 	}
-	if env.Model != "gemini-3.6-flash-tiered" {
-		t.Errorf("expected model gemini-3.6-flash-tiered, got %s", env.Model)
+	if env.Model != "gemini-3.8-flash-tiered" {
+		t.Errorf("expected model gemini-3.8-flash-tiered, got %s", env.Model)
 	}
 	if err := json.Unmarshal(env.Request, &req); err != nil {
 		t.Fatalf("Unmarshal inner request error: %v", err)
@@ -423,7 +427,3 @@ func TestWrapForAntigravity_ClaudePreservesToolIDs(t *testing.T) {
 		t.Errorf("expected Gemini functionResponse ID to be stripped, got %q", reqGemini.Contents[1].Parts[0].FunctionResponse.ID)
 	}
 }
-
-
-
-

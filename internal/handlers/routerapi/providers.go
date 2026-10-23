@@ -1497,7 +1497,13 @@ func (h *RouterAPIHandler) HandleProviderVerify(w http.ResponseWriter, r *http.R
 }
 
 func (h *RouterAPIHandler) probeAntigravityModels() ([]map[string]any, error) {
-	// Static verified catalog of supported Antigravity models
+	// Catalog verified against upstream on 2026-10-23 by probing each id:
+	// 200 = alive, 429 = alive but quota-limited, 404 = entity removed by
+	// Google. The 3.6/3.7 families, gemini-3.1-pro, gemini-pro-agent and
+	// gemini-2.5-pro now return "Requested entity was not found", so they are
+	// out of the catalog; old names are redirected in AntigravityModelSynonyms
+	// instead of 404-ing. gemini-3.8-flash-cyber and gemini-3-flash-agent
+	// answer 200 and are listed here for the first time.
 	antigravityModels := []map[string]any{
 		{"id": "antigravity/claude-3-7-sonnet", "object": "model"},
 		{"id": "antigravity/claude-sonnet-4-6", "object": "model"},
@@ -1507,30 +1513,29 @@ func (h *RouterAPIHandler) probeAntigravityModels() ([]map[string]any, error) {
 		{"id": "antigravity/gemini-3.8-flash-medium", "object": "model"},
 		{"id": "antigravity/gemini-3.8-flash-low", "object": "model"},
 		{"id": "antigravity/gemini-3.8-flash-thinking", "object": "model"},
-		{"id": "antigravity/gemini-3.7-flash-high", "object": "model"},
-		{"id": "antigravity/gemini-3.7-flash-medium", "object": "model"},
-		{"id": "antigravity/gemini-3.7-flash-low", "object": "model"},
-		{"id": "antigravity/gemini-3.7-flash-extra-low", "object": "model"},
-		{"id": "antigravity/gemini-3.7-flash-thinking", "object": "model"},
-		{"id": "antigravity/gemini-3.6-flash-high", "object": "model"},
-		{"id": "antigravity/gemini-3.6-flash-medium", "object": "model"},
-		{"id": "antigravity/gemini-3.6-flash-low", "object": "model"},
-		{"id": "antigravity/gemini-3.1-pro-high", "object": "model"},
-		{"id": "antigravity/gemini-3.1-pro-low", "object": "model"},
-		{"id": "antigravity/gemini-pro-agent", "object": "model"},
+		{"id": "antigravity/gemini-3.8-flash-cyber", "object": "model"},
 		{"id": "antigravity/gemini-3-flash-agent", "object": "model"},
-		{"id": "antigravity/gemini-2.5-pro", "object": "model"},
 		{"id": "antigravity/gpt-oss-120b-medium", "object": "model"},
 	}
 
 	now := time.Now().UnixMilli()
 	tx, err := h.db.Begin()
 	if err == nil {
+		ids := make([]any, 0, len(antigravityModels)+1)
+		ids = append(ids, "antigravity")
+		placeholders := make([]string, 0, len(antigravityModels))
 		for _, m := range antigravityModels {
 			mid, _ := m["id"].(string)
+			ids = append(ids, mid)
+			placeholders = append(placeholders, "?")
 			_, _ = tx.Exec(`INSERT INTO provider_models (provider_id, model_id, is_active, created_at) VALUES ('antigravity', ?, 1, ?)
 ON CONFLICT(provider_id, model_id) DO UPDATE SET is_active = COALESCE(provider_models.is_active, 1), created_at = excluded.created_at`, mid, now)
 		}
+		// Drop rows for models that left the catalog (and their stale health
+		// rows), otherwise /v1/models keeps advertising ids that answer 404.
+		inList := strings.Join(placeholders, ",")
+		_, _ = tx.Exec(`DELETE FROM provider_models WHERE provider_id = ? AND model_id NOT IN (`+inList+`)`, ids...)
+		_, _ = tx.Exec(`DELETE FROM model_health WHERE provider_id = ? AND model_id NOT IN (`+inList+`)`, ids...)
 		_ = tx.Commit()
 	}
 

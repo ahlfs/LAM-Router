@@ -32,6 +32,23 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Katalog model Antigravity disegarkan (diverifikasi ke upstream)
+- **Penyebab 404:** `probeAntigravityModels()` bukan probe — ia menulis ulang daftar statis lama, jadi
+  model yang sudah dihapus Google tetap ditawarkan dan setiap panggilan berakhir
+  `404 Requested entity was not found`.
+- **Hasil probe langsung (2026-10-23)** per id: `200` untuk `gemini-3.8-flash` beserta
+  high/medium/low/thinking, `gemini-3.8-flash-cyber`, `gemini-3-flash-agent`; `429` (hidup, kuota
+  habis) untuk `claude-3-7-sonnet`, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
+  `gpt-oss-120b-medium`; `404` untuk seluruh 3.7 dan 3.6, `gemini-3.1-pro-high/low`, `gemini-pro-agent`,
+  `gemini-2.5-pro`, serta semua kandidat baru yang diuji (3.8-pro, 3.9-*, dst).
+- **Template 22 → 11 model.** `gemini-3.8-flash-cyber` masuk (sebelumnya tidak terdaftar), model mati
+  dikeluarkan. Sync kini juga **menghapus** baris `provider_models` dan `model_health` untuk id yang
+  keluar katalog, supaya `/v1/models` berhenti menawarkannya.
+- **Nama lama tidak lagi 404:** alias 3.7/3.6 → `gemini-3.8-flash-tiered` (rename, thinking level
+  tetap); `gemini-2.5-pro`, `gemini-3.1-pro-*`, `gemini-3-pro-*`, `gemini-pro-agent`,
+  `gemini-3.8-flash-agent` → `gemini-3-flash-agent`; `gpt-oss-120b-high` → `gpt-oss-120b-medium`.
+- **Daftar statis di bundle UI** (dipakai picker combo) 19 → 11 entri, disamakan dengan katalog backend.
+
 ### Keamanan: model scope per API key akhirnya ditegakkan
 - **`allowed_models` sebelumnya hanya disimpan, tidak pernah dicek.** Key "Restricted" tetap bisa
   memanggil model apa pun (permintaan diteruskan ke upstream), dan `/v1/models` tetap menampilkan

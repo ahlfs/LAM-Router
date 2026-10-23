@@ -11,12 +11,12 @@ import (
 
 // AntigravityRequest is the wrapper format for Antigravity API.
 type AntigravityRequest struct {
-	Project     string          `json:"project"`
-	Model       string          `json:"model"`
-	UserAgent   string          `json:"userAgent"`
-	RequestType string          `json:"requestType"`
-	RequestID   string          `json:"requestId"`
-	Request     json.RawMessage `json:"request"`
+	Project     string               `json:"project"`
+	Model       string               `json:"model"`
+	UserAgent   string               `json:"userAgent"`
+	RequestType string               `json:"requestType"`
+	RequestID   string               `json:"requestId"`
+	Request     json.RawMessage      `json:"request"`
 	Metadata    *AntigravityMetadata `json:"metadata,omitempty"`
 }
 
@@ -29,13 +29,13 @@ type AntigravityMetadata struct {
 
 // AntigravityNativeToolNames are tool names preserved without suffix.
 var AntigravityNativeToolNames = map[string]bool{
-	"browser_subagent":                           true,
-	"command_status":                             true,
-	"find_by_name":                               true,
-	"generate_image":                             true,
-	"grep_search":                                true,
-	"list_dir":                                   true,
-	"list_resources":                             true,
+	"browser_subagent": true,
+	"command_status":   true,
+	"find_by_name":     true,
+	"generate_image":   true,
+	"grep_search":      true,
+	"list_dir":         true,
+	"list_resources":   true,
 	"mcp_sequential-thinking_sequentialthinking": true,
 	"multi_replace_file_content":                 true,
 	"notify_user":                                true,
@@ -239,43 +239,48 @@ func StripCompetitivePrompts(req *GeminiRequest) *GeminiRequest {
 // - pro variants → gemini-pro-agent / gemini-3.1-pro-high / low
 var AntigravityModelSynonyms = map[string]string{
 	// Gemini 3.8 Family
-	"gemini-3.8-flash":           "gemini-3.8-flash-tiered",
-	"gemini-3.8-flash-high":      "gemini-3.8-flash-tiered",
-	"gemini-3.8-flash-medium":    "gemini-3.8-flash-tiered",
-	"gemini-3.8-flash-low":       "gemini-3.8-flash-tiered",
-	"gemini-3.8-flash-thinking":  "gemini-3.8-flash-tiered",
-	"gemini-3.8-flash-cyber":     "gemini-3.8-flash-tiered",
-	"gemini-flash-3.8":           "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash":          "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-high":     "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-medium":   "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-low":      "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-thinking": "gemini-3.8-flash-tiered",
+	"gemini-3.8-flash-cyber":    "gemini-3.8-flash-tiered",
+	"gemini-flash-3.8":          "gemini-3.8-flash-tiered",
 
-	// Gemini 3.7 Family — uses gemini-3.7-flash-tiered with thinkingLevel
-	"gemini-3.7-flash":           "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-high":      "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-agent":     "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-medium":    "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-low":       "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-extra-low": "gemini-3.7-flash-tiered",
-	"gemini-3.7-flash-thinking":  "gemini-3.7-flash-tiered",
-	"gemini-flash-3.7":           "gemini-3.7-flash-tiered",
+	// Gemini 3.7 / 3.6 Families — upstream removed the *-tiered entities
+	// (404 "Requested entity was not found"), so the old names now resolve to the
+	// 3.8 tiered model with the same thinking level instead of breaking clients.
+	"gemini-3.7-flash":           "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-high":      "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-agent":     "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-medium":    "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-low":       "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-extra-low": "gemini-3.8-flash-tiered",
+	"gemini-3.7-flash-thinking":  "gemini-3.8-flash-tiered",
+	"gemini-flash-3.7":           "gemini-3.8-flash-tiered",
 
-	// Gemini 3.6 Family
-	"gemini-3.6-flash":           "gemini-3.6-flash-tiered",
-	"gemini-3.6-flash-high":      "gemini-3.6-flash-tiered",
-	"gemini-3.6-flash-medium":    "gemini-3.6-flash-tiered",
-	"gemini-3.6-flash-low":       "gemini-3.6-flash-tiered",
-	"gemini-flash-3.6":           "gemini-3.6-flash-tiered",
+	"gemini-3.6-flash":        "gemini-3.8-flash-tiered",
+	"gemini-3.6-flash-high":   "gemini-3.8-flash-tiered",
+	"gemini-3.6-flash-medium": "gemini-3.8-flash-tiered",
+	"gemini-3.6-flash-low":    "gemini-3.8-flash-tiered",
+	"gemini-flash-3.6":        "gemini-3.8-flash-tiered",
 
 	// Legacy flash agent & defaults
-	"gemini-3-flash-agent":       "gemini-3-flash-agent",
-	"gemini-default":             "gemini-3.8-flash-tiered",
+	"gemini-3-flash-agent":   "gemini-3-flash-agent",
+	"gemini-3.8-flash-agent": "gemini-3-flash-agent",
+	"gemini-default":         "gemini-3.8-flash-tiered",
 
-	// Gemini Pro / Agents
-	"gemini-2.5-pro":             "gemini-pro-agent",
-	"gemini-2.5-flash":           "gemini-3.7-flash-tiered",
-	"gemini-3.1-pro-high":        "gemini-pro-agent",
-	"gemini-3.1-pro":             "gemini-pro-agent",
-	"gemini-3.1-pro-low":         "gemini-pro-agent",
-	"gemini-3-pro-high":          "gemini-pro-agent",
-	"gemini-3-pro-low":           "gemini-pro-agent",
+	// Gemini Pro / Agents — every pro entity is gone upstream; the surviving
+	// agent model is gemini-3-flash-agent, which keeps agent semantics without
+	// pretending a pro tier still exists.
+	"gemini-pro-agent":    "gemini-3-flash-agent",
+	"gemini-2.5-pro":      "gemini-3-flash-agent",
+	"gemini-2.5-flash":    "gemini-3.8-flash-tiered",
+	"gemini-3.1-pro-high": "gemini-3-flash-agent",
+	"gemini-3.1-pro":      "gemini-3-flash-agent",
+	"gemini-3.1-pro-low":  "gemini-3-flash-agent",
+	"gemini-3-pro-high":   "gemini-3-flash-agent",
+	"gemini-3-pro-low":    "gemini-3-flash-agent",
 
 	// Claude via Antigravity CloudCode
 	"claude-3-7-sonnet":          "claude-sonnet-4-6",
@@ -286,7 +291,8 @@ var AntigravityModelSynonyms = map[string]string{
 	"claude-opus-4.6":            "claude-opus-4-6-thinking",
 
 	// GPT OSS
-	"gpt-oss-120b":               "gpt-oss-120b-medium",
+	"gpt-oss-120b":      "gpt-oss-120b-medium",
+	"gpt-oss-120b-high": "gpt-oss-120b-medium",
 }
 
 // antigravityThinkingLevels maps the original user-facing model alias to its thinking level.
@@ -666,5 +672,3 @@ func FormatAntigravityImageResponse(rawGeminiResp []byte, prompt string) ([]byte
 
 	return json.Marshal(result)
 }
-
-
