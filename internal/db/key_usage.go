@@ -33,6 +33,8 @@ type KeyUsageSummary struct {
 	UsageTokens   int64           `json:"usageTokens"`
 	UsageCost     float64         `json:"usageCost"`
 	TrackedTokens int64           `json:"trackedTokens"`
+	Requests      int64           `json:"requests"`
+	ModelCount    int64           `json:"modelCount"`
 	Models        []ModelUsageRow `json:"models"`
 }
 
@@ -248,7 +250,9 @@ func (r *Repo) KeyUsageSummary(modelLimit int) ([]KeyUsageSummary, error) {
 		SELECT ak.id, ak.name, COALESCE(ak.enabled, 1), COALESCE(ak.quota_limit, 0),
 		       COALESCE(ak.last_model, ''), COALESCE(ak.last_used_at, 0),
 		       COALESCE(ak.usage_tokens, 0), COALESCE(ak.usage_cost, 0),
-		       COALESCE((SELECT SUM(u.total_tokens) FROM api_key_model_usage u WHERE u.key_id = ak.id), 0)
+		       COALESCE((SELECT SUM(u.total_tokens) FROM api_key_model_usage u WHERE u.key_id = ak.id), 0),
+		       COALESCE((SELECT SUM(u.requests) FROM api_key_model_usage u WHERE u.key_id = ak.id), 0),
+		       COALESCE((SELECT COUNT(*) FROM api_key_model_usage u WHERE u.key_id = ak.id), 0)
 		FROM api_keys ak ORDER BY ak.created_at DESC`)
 	if err != nil {
 		return nil, err
@@ -261,7 +265,8 @@ func (r *Repo) KeyUsageSummary(modelLimit int) ([]KeyUsageSummary, error) {
 		var s KeyUsageSummary
 		var enabled int
 		if err := rows.Scan(&s.ID, &s.Name, &enabled, &s.QuotaLimit, &s.LastModel,
-			&s.LastUsedAt, &s.UsageTokens, &s.UsageCost, &s.TrackedTokens); err != nil {
+			&s.LastUsedAt, &s.UsageTokens, &s.UsageCost, &s.TrackedTokens,
+			&s.Requests, &s.ModelCount); err != nil {
 			return nil, err
 		}
 		s.Enabled = enabled != 0
