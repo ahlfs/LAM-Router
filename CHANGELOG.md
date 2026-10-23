@@ -27,8 +27,10 @@
   id, aktivitas terakhir (relatif + tanggal), empat metrik berlabel — tokens tracked (dengan tanggal
   mulai tracking), requests, biaya, dan model terakhir beserta kapan model itu dipakai — bar distribusi
   model (top 4 + sisanya, legenda persentase), bar pemakaian quota bila `quotaLimit > 0`, dan penanda
-  `counter drift`. Rincian penuh per model (token, request, biaya, share) dibuka di modal lewat tombol
-  `View N models`.
+  `counter drift`. Rincian penuh per model dibuka di jendela gaya macOS (overlay gelap + blur, jendela
+  `rounded-2xl`, tiga titik traffic light, tombol tutup, footer, tutup via Esc / klik luar) lewat tombol
+  `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
+  dibuka.
 
 ### Table & List Density
 - **Kontrol density sekarang benar-benar bekerja.** Sebelumnya `uiDensity` hanya tersimpan di
