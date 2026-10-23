@@ -73,6 +73,13 @@ type APIKey struct {
 	CreditLimit float64 `json:"creditLimit"`
 	UsageCost   float64 `json:"usageCost"`
 	RateLimit   int     `json:"rateLimit"`
+	// AllowedModels is the per-key model scope ("Restricted" in the dashboard).
+	// Empty means unrestricted. Enforced by ModelAllowed.
+	AllowedModels []string `json:"allowed_models,omitempty"`
+	// ScopeInvalid marks a stored scope that could not be parsed. Such a key is
+	// treated as restricted-but-empty (deny every model) so a corrupt row can
+	// never silently grant unlimited access.
+	ScopeInvalid bool `json:"-"`
 }
 
 // Combo represents a multi-model routing combinated alias.

@@ -32,6 +32,23 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Keamanan: model scope per API key akhirnya ditegakkan
+- **`allowed_models` sebelumnya hanya disimpan, tidak pernah dicek.** Key "Restricted" tetap bisa
+  memanggil model apa pun (permintaan diteruskan ke upstream), dan `/v1/models` tetap menampilkan
+  seluruh katalog. Sekarang scope ditegakkan di `/v1/chat/completions`, `/v1/messages`, `/v1/embeddings`,
+  `/v1/images/generations`, `/v1/audio/speech` (termasuk jalur MiMo TTS), dan endpoint media lain yang
+  lewat `forwardMediaRequest`. Penolakan berupa `403` dengan `type=permission_error`,
+  `code=model_not_allowed`, dan pesan yang menyebut model yang ditolak beserta daftar yang diizinkan.
+- **Dicek sebelum cache dan sebelum upstream**, jadi response cache tidak bisa melewati batasan dan
+  model terlarang tidak menghabiskan kuota provider.
+- **Cocok untuk nama tanpa prefix**: entri `provider/model` juga menerima panggilan `model` saja, tapi
+  entri ber-prefix tidak pernah cocok dengan provider lain. Perbandingan case-insensitive.
+- **Combo**: lolos bila nama combo diizinkan, atau bila seluruh anggota combo ada di dalam scope.
+- **`/v1/models` difilter** untuk key terbatas (route tetap publik; filter aktif bila client mengirim
+  key). Sesi admin/dashboard tidak terpengaruh.
+- **Scope rusak gagal-tertutup**: JSON yang tidak bisa dibaca membuat key menolak semua model, bukan
+  berubah menjadi tanpa batasan.
+
 ### Table & List Density
 - **Kontrol density sekarang benar-benar bekerja.** Sebelumnya `uiDensity` hanya tersimpan di
   localStorage tanpa consumer. Sekarang atribut `data-density` dipasang sebelum paint dari

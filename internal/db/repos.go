@@ -91,16 +91,25 @@ func (r *Repo) GetApiKeyByKey(key string) (*models.APIKey, error) {
 	var rateLimit, quotaLimit sql.NullInt64
 	var usageTokens sql.NullInt64
 	var creditLimit, usageCost sql.NullFloat64
+	var allowedModels sql.NullString
 	var createdAt int64
 
 	err := r.db.QueryRow(
-		"SELECT id, key, name, enabled, rate_limit, quota_limit, usage_tokens, credit_limit, usage_cost, created_at FROM api_keys WHERE key = ? LIMIT 1",
+		"SELECT id, key, name, enabled, rate_limit, quota_limit, usage_tokens, credit_limit, usage_cost, created_at, allowed_models FROM api_keys WHERE key = ? LIMIT 1",
 		key,
-	).Scan(&apiKey.ID, &apiKey.Key, &name, &enabled, &rateLimit, &quotaLimit, &usageTokens, &creditLimit, &usageCost, &createdAt)
+	).Scan(&apiKey.ID, &apiKey.Key, &name, &enabled, &rateLimit, &quotaLimit, &usageTokens, &creditLimit, &usageCost, &createdAt, &allowedModels)
 
 	if err == nil {
 		apiKey.Name = &name
 		apiKey.IsActive = enabled
+		if allowedModels.Valid && strings.TrimSpace(allowedModels.String) != "" {
+			// A malformed scope fails closed: ScopeInvalid makes the key deny
+			// every model instead of reading as "no restriction".
+			if jsonErr := json.Unmarshal([]byte(allowedModels.String), &apiKey.AllowedModels); jsonErr != nil {
+				apiKey.AllowedModels = nil
+				apiKey.ScopeInvalid = true
+			}
+		}
 		if quotaLimit.Valid {
 			apiKey.QuotaLimit = quotaLimit.Int64
 		}

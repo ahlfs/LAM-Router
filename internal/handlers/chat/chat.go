@@ -16,6 +16,7 @@ import (
 	"lamrouter/internal/handlers/routerapi"
 	"lamrouter/internal/handlerutil"
 	"lamrouter/internal/log"
+	"lamrouter/internal/middleware"
 	"lamrouter/internal/promptinject"
 	"lamrouter/internal/providers"
 	"lamrouter/internal/translator"
@@ -57,6 +58,15 @@ func (h *ChatHandler) HandleChatCompletions(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		h.LogEarlyError(r, http.StatusBadRequest, err.Error(), body, reqBody.Model)
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Per-key model scope ("Restricted" in the dashboard). Checked before the
+	// cache lookup and before any upstream call, so a cached response cannot
+	// bypass the restriction and a denied model never spends provider quota.
+	if msg := h.ModelScopeDenial(r, reqBody.Model, modelInfo); msg != "" {
+		h.LogEarlyError(r, http.StatusForbidden, msg, body, reqBody.Model)
+		handlerutil.WriteJSONErrorCode(w, http.StatusForbidden, "permission_error", "model_not_allowed", msg)
 		return
 	}
 
@@ -181,6 +191,13 @@ func (h *ChatHandler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		log.Error("chat", "resolve model failed", "error", err, "model", reqBody.Model)
 		h.LogEarlyError(r, http.StatusBadRequest, err.Error(), body, reqBody.Model)
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Per-key model scope, enforced before prompt injection reaches upstream.
+	if msg := h.ModelScopeDenial(r, reqBody.Model, modelInfo); msg != "" {
+		h.LogEarlyError(r, http.StatusForbidden, msg, body, reqBody.Model)
+		handlerutil.WriteJSONErrorCode(w, http.StatusForbidden, "permission_error", "model_not_allowed", msg)
 		return
 	}
 
@@ -441,6 +458,29 @@ func (h *ChatHandler) HandleModels(w http.ResponseWriter, r *http.Request) {
 
 	if data == nil {
 		data = []modelObj{}
+	}
+
+	// A restricted key only advertises the models it may actually call. This
+	// route is public (dashboards and clients may list models without a key), so
+	// when the middleware did not authenticate the request we still honour a key
+	// the caller did present — otherwise a restricted client would keep seeing
+	// models that every inference call refuses.
+	key := middleware.GetAuthenticatedApiKey(r)
+	if key == nil {
+		if raw := middleware.ExtractApiKey(r); raw != "" {
+			if k, kerr := h.Repo.GetApiKeyByKey(raw); kerr == nil && k != nil {
+				key = k
+			}
+		}
+	}
+	if key.Restricted() {
+		allowed := make([]modelObj, 0, len(data))
+		for _, m := range data {
+			if key.ModelAllowed(m.ID) {
+				allowed = append(allowed, m)
+			}
+		}
+		data = allowed
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{

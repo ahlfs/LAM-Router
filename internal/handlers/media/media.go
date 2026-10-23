@@ -65,6 +65,9 @@ func (h *MediaHandler) HandleEmbeddings(w http.ResponseWriter, r *http.Request) 
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	if h.denyOutOfScopeModel(w, r, reqBody.Model, modelInfo) {
+		return
+	}
 
 	conn, connData, err := h.ChatH.GetBestConnection(modelInfo.Provider, modelInfo.ConnectionID, nil, modelInfo.Model)
 	if err != nil {
@@ -230,6 +233,9 @@ func (h *MediaHandler) forwardMiMoSpeech(w http.ResponseWriter, r *http.Request,
 	modelInfo, err := h.ChatH.ResolveModel(req.Model)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if h.denyOutOfScopeModel(w, r, req.Model, modelInfo) {
 		return
 	}
 	_, connData, err := h.ChatH.GetBestConnection(modelInfo.Provider, modelInfo.ConnectionID, nil, modelInfo.Model)
@@ -441,6 +447,18 @@ func (h *MediaHandler) HandleWebFetch(w http.ResponseWriter, r *http.Request) {
 	h.forwardMediaRequest(w, r, body, "gpt-4o", "/v1/web/fetch")
 }
 
+// denyOutOfScopeModel writes a 403 and reports true when the authenticated key
+// may not use the resolved model. Shared by every media endpoint so a
+// "Restricted" key cannot reach providers through a non-chat surface.
+func (h *MediaHandler) denyOutOfScopeModel(w http.ResponseWriter, r *http.Request, requested string, info *shared.ModelInfo) bool {
+	msg := h.ChatH.ModelScopeDenial(r, requested, info)
+	if msg == "" {
+		return false
+	}
+	handlerutil.WriteJSONErrorCode(w, http.StatusForbidden, "permission_error", "model_not_allowed", msg)
+	return true
+}
+
 func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Request, body []byte, defaultModel, endpoint string) {
 	model := defaultModel
 	var reqBody struct {
@@ -453,6 +471,12 @@ func (h *MediaHandler) forwardMediaRequest(w http.ResponseWriter, r *http.Reques
 	modelInfo, err := h.ChatH.ResolveModel(model)
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	// Per-key model scope applies to every inference surface, not just chat:
+	// media endpoints must not become a side door around a restricted key.
+	if h.denyOutOfScopeModel(w, r, model, modelInfo) {
 		return
 	}
 

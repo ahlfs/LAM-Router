@@ -57,6 +57,29 @@ func WriteJSONError(w http.ResponseWriter, status int, message string) {
 	w.Write(jsonBytes)
 }
 
+// WriteJSONErrorCode writes a standardized JSON error with an explicit type and
+// code, for cases the status-code table cannot express (a 403 that is not a
+// quota refusal, for example).
+func WriteJSONErrorCode(w http.ResponseWriter, status int, errType, errCode, message string) {
+	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
+	w.WriteHeader(status)
+	if errType == "" {
+		errType = "invalid_request_error"
+	}
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{
+			"message": message,
+			"type":    errType,
+			"code":    errCode,
+		},
+	})
+	if err != nil {
+		w.Write([]byte(`{"error":{"message":"internal error","type":"server_error","code":"internal_server_error"}}`))
+		return
+	}
+	w.Write(body)
+}
+
 // WriteJSON writes a JSON response with the given status code and body.
 func WriteJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set(constants.HeaderContentType, constants.ContentTypeJSON)
