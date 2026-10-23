@@ -20,7 +20,9 @@
   rollup, untuk satu key (`{"id":"key_..."}`) atau semua key (body kosong). Tidak pernah otomatis,
   supaya reset manual tidak dibatalkan diam-diam, dan sengaja tidak diekspos sebagai tombol di UI.
 - **Reset konsisten.** `resetUsage` juga menghapus rollup dan stamp, jadi breakdown tidak hidup lebih
-  lama dari counter-nya.
+  lama dari counter-nya. Menghapus key (`DELETE /v1/keys/{id}`) ikut menghapus baris rollup-nya,
+  supaya tidak ada akumulator yatim yang luput dari retensi (retensi hanya memangkas
+  `request_logs`/`requestDetails`).
 - **Section "API Usage"** di halaman Endpoint & Keys: model terakhir, aktivitas terakhir, total token
   dan biaya per key, penanda `counter drift` bila counter dan rollup berbeda, plus tombol `models · N`
   yang membuka rincian per model (token, jumlah request, biaya) di dalam modal — bukan ditumpuk di

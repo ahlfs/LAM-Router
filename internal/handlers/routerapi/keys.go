@@ -290,5 +290,9 @@ func (h *RouterAPIHandler) HandleKeyDelete(w http.ResponseWriter, r *http.Reques
 	}
 
 	_, _ = h.db.Exec("DELETE FROM apiKeys WHERE id = ?", id)
+	// Rollup per model tidak ikut terhapus bersama barisnya, jadi bersihkan di
+	// sini; kalau tidak, akumulator yatim menumpuk tanpa batas dan tidak pernah
+	// tersentuh retensi (yang hanya memangkas request_logs/requestDetails).
+	_, _ = h.db.Exec("DELETE FROM api_key_model_usage WHERE key_id = ?", id)
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"message": "API Key revoked and deleted successfully"})
 }
