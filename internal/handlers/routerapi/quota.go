@@ -35,7 +35,9 @@ type LiveModelQuotaItem struct {
 	PercentageValue int    `json:"percentageValue"`
 	ResetIn         string `json:"resetIn,omitempty"`
 	ResetTime       string `json:"resetTime,omitempty"`
-	Status          string `json:"status"` // "ok" | "warning" | "exhausted" | "normal"
+	Status          string `json:"status"`                    // "ok" | "warning" | "exhausted" | "normal"
+	BlockedByWeekly bool   `json:"blockedByWeekly,omitempty"` // 5h bucket unusable because the weekly cap is spent
+	Note            string `json:"note,omitempty"`            // short explanation for the UI
 }
 
 type ProviderUsageMetric struct {
@@ -170,6 +172,86 @@ func (h *RouterAPIHandler) refreshGoogleOAuthToken(refreshToken string) (string,
 	return res.AccessToken, nil
 }
 
+// weeklyExhaustedThreshold is the remaining percentage at or below which a quota
+// row is reported as "exhausted". It mirrors the status thresholds used in this
+// file so the badge and the number can never disagree.
+const weeklyExhaustedThreshold = 5
+
+// quotaWindowOf reports which window a quota row describes ("5h" or "7d").
+//
+// The two data sources name rows differently — the summary endpoint returns
+// "Claude and GPT models (5h)", the estimate path returns
+// "Gemini Models · Five Hour Limit Remaining" — so the window is matched on
+// words rather than on one fixed format.
+func quotaWindowOf(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "5h"), strings.Contains(lower, "five hour"), strings.Contains(lower, "daily"):
+		return "5h"
+	case strings.Contains(lower, "7d"), strings.Contains(lower, "weekly"), strings.Contains(lower, "5-day"):
+		return "7d"
+	}
+	return ""
+}
+
+// quotaFamilyOf strips the window marker so rows of the same account pool can be
+// grouped: "Claude and GPT models (5h)" and "Claude and GPT models · Weekly Limit
+// Remaining" both reduce to "Claude and GPT models".
+func quotaFamilyOf(name string) string {
+	if i := strings.LastIndex(name, " ("); i > 0 {
+		name = name[:i]
+	}
+	if i := strings.Index(name, " · "); i > 0 {
+		name = name[:i]
+	}
+	return strings.TrimSpace(name)
+}
+
+// applyWeeklyExhaustionCoupling enforces that the weekly cap is the hard ceiling:
+// once a family's 7-day bucket is spent, its 5-hour bucket cannot hand out
+// capacity, so it must not advertise "remaining".
+//
+// Google keeps returning a positive 5h fraction in that state (observed on a
+// live account: weekly 0.0 / 5h 0.9992 with the weekly reset 2 days out), and
+// the estimate path derives the 5h number from elapsed time alone. Without this,
+// the UI showed "weekly exhausted" next to a nearly full "Five Hour" bar.
+func applyWeeklyExhaustionCoupling(quotas []LiveModelQuotaItem) []LiveModelQuotaItem {
+	spentWeekly := make(map[string]LiveModelQuotaItem, len(quotas))
+	for _, q := range quotas {
+		if quotaWindowOf(q.Name) == "7d" && q.PercentageValue <= weeklyExhaustedThreshold {
+			spentWeekly[quotaFamilyOf(q.Name)] = q
+		}
+	}
+	if len(spentWeekly) == 0 {
+		return quotas
+	}
+
+	out := make([]LiveModelQuotaItem, len(quotas))
+	copy(out, quotas)
+	for i := range out {
+		if quotaWindowOf(out[i].Name) != "5h" {
+			continue
+		}
+		weekly, ok := spentWeekly[quotaFamilyOf(out[i].Name)]
+		if !ok {
+			continue
+		}
+		out[i].PercentageValue = 0
+		out[i].Percentage = "0%"
+		out[i].Used = out[i].Limit
+		out[i].Status = "exhausted"
+		out[i].BlockedByWeekly = true
+		// The 5-hour window will roll over long before the account is usable
+		// again, so the honest countdown is the weekly one.
+		out[i].ResetIn = weekly.ResetIn
+		out[i].ResetTime = weekly.ResetTime
+		if out[i].Note == "" {
+			out[i].Note = "Weekly limit exhausted — this 5-hour pool is unusable until the weekly quota resets."
+		}
+	}
+	return out
+}
+
 func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token string) ([]LiveModelQuotaItem, error) {
 	if token == "" {
 		return nil, fmt.Errorf("no access token")
@@ -234,7 +316,7 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 					}
 				}
 				if len(quotas) > 0 {
-					return quotas, nil
+					return applyWeeklyExhaustionCoupling(quotas), nil
 				}
 			}
 		}
@@ -511,7 +593,7 @@ func (h *RouterAPIHandler) fetchAntigravityLiveQuotas(ctx context.Context, token
 		Status:          statusClaudeDaily,
 	})
 
-	return quotas, nil
+	return applyWeeklyExhaustionCoupling(quotas), nil
 }
 
 // getProviderUsageMetrics menghitung pemakaian per model untuk satu provider.

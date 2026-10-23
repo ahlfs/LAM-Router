@@ -32,6 +32,23 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Quota & limits Antigravity: kuota mingguan habis → 5-jam ikut habis
+- **Bug:** kartu "Claude and GPT models (5h)" tetap menampilkan sisa kuota (mis. 99%) padahal kuota
+  mingguan sudah 0%. Google memang masih mengembalikan fraksi 5-jam positif saat batas mingguan habis
+  (terukur di akun asli: weekly `0.0`, 5h `0.9992`, reset mingguan ~2 hari lagi), dan jalur estimasi
+  lama menghitung persen 5-jam dari waktu berjalan saja.
+- **Perbaikan:** `applyWeeklyExhaustionCoupling` menyamakan keputusan antar baris — begitu bucket 7-hari
+  satu keluarga ≤ 5% (ambang "exhausted" yang sama dengan badge), baris 5-jam keluarga itu dipaksa
+  `0%`, status `exhausted`, `used = limit`, countdown diarahkan ke reset mingguan, plus flag
+  `blockedByWeekly` dan `note` penjelasan. Diterapkan di kedua jalur data (summary Google dan fallback
+  estimasi), jadi perilakunya sama walau salah satu endpoint tidak tersedia.
+- **UI:** kartu 5-jam menampilkan catatan alasannya dan label "Blocked by weekly" menggantikan
+  "Rolling Pool".
+- **Test:** unit test `TestApplyWeeklyExhaustionCoupling` (6 skenario: summary, estimasi, keluarga lain,
+  weekly masih ada, tanpa baris weekly, input kosong) + `TestQuotaFamilyAndWindow`; uji live ke endpoint
+  Google dengan akun sungguhan menunjukkan Claude 7d 0% → 5h dipaksa 0%/exhausted/reset 1d 22h,
+  sementara Gemini (7d 98%, 5h 99%) tidak diubah.
+
 ### Priority connection: renumber 1..N dan demosi hanya untuk error akun
 - **Diagnosis "priority 61":** `DemoteConnectionToLowest` menetapkan `MAX(priority)+1` setiap kali
   upstream gagal, dan tidak ada jalur yang menaikkan kembali saat sukses. Priority jadi penghitung
