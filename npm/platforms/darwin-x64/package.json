@@ -1,6 +1,6 @@
 {
   "name": "lam-router-darwin-x64",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "LAM-Router binary for macOS x64 (Intel)",
   "os": [
     "darwin"

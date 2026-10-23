@@ -1,6 +1,6 @@
 {
   "name": "lam-router-linux-x64",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "LAM-Router binary for Linux x64",
   "os": [
     "linux"
