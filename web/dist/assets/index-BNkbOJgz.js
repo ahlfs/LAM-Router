@@ -79,6 +79,67 @@ function LamTelemetryPeriodControl() {
    against the same window total as the KPI cards, and each row reuses the app's
    own provider icon component (Wt) so a provider id resolves to its brand icon
    instead of an initials badge. */
+var LAM_SEG_COLORS = ["bg-primary", "bg-emerald-500", "bg-amber-500", "bg-sky-500", "bg-cyan-500", "bg-blue-500", "bg-pink-500"];
+
+function LamProviderSegments(props) {
+  var rows = (props.rows || []).slice();
+  if (!rows.length) return null;
+  var total = Number(props.total) || 0;
+  if (!total) {
+    total = rows.reduce(function (a, r) { return a + (Number(r.totalTokens) || 0); }, 0);
+  }
+  var top = rows.slice(0, LAM_SEG_COLORS.length);
+  var rest = rows.slice(LAM_SEG_COLORS.length);
+  var segs = top.map(function (r, i) {
+    return {
+      key: r.providerId || String(i),
+      name: r.name || r.providerId || "unknown",
+      tokens: Number(r.totalTokens) || 0,
+      color: LAM_SEG_COLORS[i]
+    };
+  });
+  if (rest.length) {
+    segs.push({
+      key: "__other",
+      name: "other \u00b7 " + rest.length + " providers",
+      tokens: rest.reduce(function (a, r) { return a + (Number(r.totalTokens) || 0); }, 0),
+      color: "bg-muted-foreground"
+    });
+  }
+  var pct = function (t) { return total > 0 ? (t / total) * 100 : 0; };
+  return c.jsxs("div", {
+    className: "flex flex-col gap-2",
+    "data-lam-segmented": "provider-share",
+    children: [
+      c.jsx("div", {
+        className: "flex h-3 w-full overflow-hidden rounded-full border border-border bg-secondary/60",
+        role: "img",
+        "aria-label": segs.map(function (s) { return s.name + " " + pct(s.tokens).toFixed(1) + "%"; }).join(", "),
+        children: segs.map(function (s) {
+          return c.jsx("span", {
+            className: s.color,
+            style: { width: pct(s.tokens) + "%" },
+            title: s.name + " \u00b7 " + ie(s.tokens) + " tok \u00b7 " + pct(s.tokens).toFixed(1) + "%"
+          }, s.key);
+        })
+      }),
+      c.jsx("div", {
+        className: "flex flex-wrap items-center gap-2",
+        children: segs.map(function (s) {
+          return c.jsxs("span", {
+            className: "inline-flex min-w-0 items-center gap-1.5 font-mono text-[10.5px] text-muted-foreground",
+            children: [
+              c.jsx("span", { className: "size-2 shrink-0 rounded-full " + s.color }),
+              c.jsx("span", { className: "truncate text-foreground", style: { maxWidth: "9rem" }, title: s.name, children: s.name }),
+              c.jsx("span", { className: "tabular-nums", children: pct(s.tokens).toFixed(1) + "%" })
+            ]
+          }, s.key);
+        })
+      })
+    ]
+  });
+}
+
 function LamProviderDistributionCard(props) {
   var providers = props.providers || [];
   var periodKey = props.period || "all";
@@ -173,30 +234,6 @@ function LamProviderDistributionCard(props) {
             })
           ]
         }),
-        c.jsxs("div", {
-          className: "mt-2 flex items-center gap-2.5",
-          children: [
-            c.jsx("div", {
-              className: "h-2 flex-1 overflow-hidden rounded-full border border-border bg-secondary p-[1px]",
-              role: "progressbar",
-              "aria-valuenow": share,
-              "aria-valuemin": 0,
-              "aria-valuemax": 100,
-              "aria-label": name + " carries " + share.toFixed(1) + " percent of tokens in this period",
-              children: c.jsx("span", {
-                className: "block h-full rounded-full bg-gradient-to-r from-indigo-500 to-primary transition-all duration-500 ease-out",
-                style: { width: barWidth + "%" }
-              })
-            }),
-            c.jsxs("span", {
-              className: "w-14 shrink-0 text-right font-mono tabular-nums text-[11px]",
-              children: [
-                c.jsx("strong", { className: "text-sm font-bold text-primary", children: share.toFixed(1) }),
-                c.jsx("span", { className: "text-[10px] text-muted-foreground", children: "%" })
-              ]
-            })
-          ]
-        })
       ]
     });
   });
@@ -273,10 +310,13 @@ function LamProviderDistributionCard(props) {
         className: "mt-3.5 rounded-lg border border-dashed border-border bg-muted/10 p-8 text-center text-xs text-muted-foreground",
         "data-lam-empty": "provider-distribution",
         children: "No provider traffic in the selected period yet."
-      }) : c.jsx("div", {
-        className: "mt-3.5 space-y-2.5",
+      }) : c.jsxs("div", {
+        className: "mt-3.5 flex flex-col gap-3",
         "aria-label": "Provider token share",
-        children: rows
+        children: [
+          c.jsx(LamProviderSegments, { rows: providers, total: totalTokens }),
+          c.jsx("div", { className: "space-y-2.5", children: rows })
+        ]
       })
     ]
   });

@@ -32,6 +32,13 @@
   `View N models`; jendela ini dirender langsung tanpa portal/transisi sehingga tidak berkedip saat
   dibuka.
 
+### Provider Distribution: satu segmented chart
+- Bar progress yang dulu digambar di setiap baris provider dihapus. Sebagai gantinya ada satu
+  **stacked segmented chart** di atas daftar: tiap provider jadi satu segmen berwarna (7 provider
+  teratas, sisanya digabung jadi `other · N providers`), lengkap dengan legenda nama + persentase.
+  Lebar segmen proporsional terhadap token pada periode yang dipilih, dan `aria-label` merangkum
+  pembagiannya untuk pembaca layar.
+
 ### Ikon pada pemilih mode Prompt Inject
 - Dropdown mode (`prepend` / `append` / `replace` / `hidden_user`) kini punya ikon Lucide inline
   supaya maksud tiap mode langsung terbaca: panah ke garis atas (menempel di atas system prompt klien),
