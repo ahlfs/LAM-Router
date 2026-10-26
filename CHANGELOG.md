@@ -1,5 +1,120 @@
 # Changelog
 
+## [Unreleased] — 2026-10-26
+
+### Neural Pipeline tidak lagi menggambar provider yang belum terkoneksi
+- **Dua akar masalah.** (1) `buildCatalog` menghitung status `connected` dari baris tabel
+  `providers`, padahal routing mengambil upstream dari `providerConnections WHERE isActive = 1`.
+  Akibatnya provider yang semua koneksinya sudah dihapus tetap tampil "connected" (terukur:
+  `connected: 2` untuk antigravity saat `providerConnections` kosong) sementara request akan
+  gagal `no active connections for provider`. (2) Topologi memakai fallback
+  `connected.length > 0 ? connected : allProviders.slice(0, 8)`, jadi saat benar-benar nol
+  koneksi dashboard tetap menggambar delapan provider dari katalog; filter frontend juga masih
+  meloloskan `connections.length > 0` (field itu berisi baris config, selalu terisi).
+- **Perbaikan backend.** `buildCatalog` sekarang memakai `activeRuntimeConnections()`
+  (`providerConnections` yang `isActive = 1`, dicocokkan per nama provider lalu per id koneksi).
+  Provider config tanpa koneksi aktif dilaporkan `no_connections`; entri dinamis (provider
+  import/custom) juga tidak lagi dipaksa `connected`.
+- **Perbaikan frontend.** Node topologi difilter murni dari status (`connectedCount > 0` atau
+  `state === "connected"`), tanpa fallback katalog dan tanpa bypass `connections.length`, plus
+  empty state "No provider connected — add one under Providers". Tampilan Provider Grid memakai
+  daftar yang sama sehingga ikut benar ("Fleet Nodes: 0 Clusters" saat nol koneksi).
+- **Bukti.** Instance dengan `providerConnections` kosong: API 44 provider, 0 `connected`;
+  dashboard 2 node (ingress + core) + empty state, grid 0 cluster. Setelah koneksi
+  dikembalikan: API `antigravity: 2, river: 1`; dashboard kembali menggambar dua node itu.
+  Di instance live: 2 node, sama dengan status API. Test regresi:
+  `TestBuildCatalog_ConnectedRequiresActiveRuntimeConnection`, dan helper
+  `seedPoolMember` kini juga membuat baris `providerConnections` (config saja bukan koneksi).
+
+
+### Playground: audit "Think" + Playground settings, dan perbaikan panel settings di HP
+- **Hasil audit (terbukti di body upstream, bukan asumsi).** Think mengirim `reasoning_effort:"high"`
+  ke upstream; Playground settings mengirim `temperature`, `max_tokens`, dan system prompt sebagai
+  pesan `system` pertama. Diuji di instance terisolasi + upstream perekam: body terkirim
+  `{temperature:1.3, max_tokens:4096, reasoning_effort:"high", messages:[{role:"system",content:"SYS-MARKER-XYZ"}, …]}`.
+  Preset (Default/Senior Dev/JSON Output/Concise), slider temperature, tombol token, dan Reset
+  semuanya berfungsi. `reasoning_effort` diterjemahkan ke thinking budget untuk provider Gemini dan
+  ditangani khusus oleh executor CodeBuddy; untuk provider OpenAI-protocol lain diteruskan apa adanya
+  (river menerimanya, HTTP 200).
+- **Bug yang diperbaiki — popover settings tidak terpakai di HP.** Panel `absolute … left-0 w-80`
+  digantung pada wrapper `relative inline-block` di tombol gear (ujung kanan composer), jadi di
+  390px panel meluber 237px keluar layar dan di 320px 110px — kontrol temperature/token tidak bisa
+  dijangkau. Sekarang (≤640px) wrapper dibuat `static` sehingga composer yang `relative` jadi
+  containing block, panel mengikuti lebar composer di atas composer, dan tingginya dibatasi
+  `max(200px, 100dvh - 17.5rem)` dengan scroll internal. Desktop tidak berubah (terukur: panel tetap
+  menempel di tepi kiri gear, 384px, di dalam layar).
+- **Ketiga temuan ditindaklanjuti (step 1-3).**
+  (1) **Export Code kini ekuivalen** dengan request asli: generator menerima `temperature`,
+  `max_tokens`, dan `thinking`, dan keempat bahasa (cURL, TypeScript SDK, Python SDK,
+  JavaScript Fetch) memuatnya — Python lewat `extra_body={"reasoning_effort": "high"}`.
+  Terverifikasi di UI: `temperature: 1.1`, `max_tokens: 4096`, `reasoning_effort: "high"`,
+  plus system prompt, di keempat tab.
+  (2) **Settings persist** (`localStorage["lamrouter_playground_last"]`): system prompt,
+  temperature, max tokens, Think, dan switch helper bertahan setelah reload; nilai default
+  aplikasi (`lamrouter_app_settings`) tetap jadi seed saat belum pernah dipakai.
+  Terverifikasi: set 1.4 / 8192 / Think on / helper on -> reload -> semua utuh.
+  (3) **Switch "AI helper requests"** di panel settings (default ON, persist) menggerbang
+  request saran follow-up: switch OFF -> 1 request per kiriman, ON -> 2 (main + 150-token
+  follow-up). Selain itu **request auto-title dimatikan permanen**: judul sesi sudah diisi
+  lokal dari pesan pertama, dan guard-nya membaca array sesi yang bisa basi sehingga
+  kadang menembak dua kali (terukur 2 title request untuk satu kiriman). Sekarang tidak
+  ada lagi request helper yang tak terlihat selain yang diizinkan switch.
+
+
+### Dashboard responsif di mobile (Playground + Prompt Inject)
+- **Playground — geometri panel dikunci.** Area isi panel dulu mengikuti jumlah model
+  (grid `min-h-[260px] max-h-[380px]`, kolom model `max-h-[360px]`), jadi pindah dari
+  provider dengan banyak model ke yang sedikit mengecilkan seluruh panel: tinggi 420 -> 320,
+  top 342 -> 442, dan baris pertama turun 422 -> 522. Kursor jadi harus diarahkan ulang
+  setiap kali ganti provider (dan filter pencarian pun mengubah ukuran). Sekarang area isi
+  dipatok satu tinggi (360px desktop, 300px mobile) dengan daftar model scroll di dalamnya:
+  tinggi/top/baris pertama identik untuk semua provider maupun hasil filter.
+- **Playground — panel pemilih model.** Panelnya `bg-card/95` yang di atas `--card` (#ffffff06)
+  hanya menghasilkan isi ~2% opak, jadi teks halaman di belakangnya menembus daftar provider/model
+  (inilah "bertabrakan" yang terlihat). Sekarang panel memakai `--popover` (opak). Di ≤640px panel
+  mengikuti lebar composer (`left/right: 0`) alih-alih `w-[340px]` tetap yang meluber keluar layar
+  di 320px, tingginya dibatasi `max(240px, 100dvh - 18rem)` supaya tidak naik menembus header,
+  daftar provider jadi strip chip horizontal, dan daftar model mengisi sisa tinggi serta bisa
+  di-scroll (sebelumnya terpotong `overflow:hidden` di tengah baris).
+- **Prompt Inject — halaman standalone.** Tidak ada media query sama sekali: baris combo memaksa
+  nama + target + status + cuplikan prompt dalam satu baris (nama terpotong jadi "Testing-",
+  target jadi kolom 80px, cuplikan terpangkas 58px), dropdown mode mempertahankan `min-width:236px`
+  sehingga mendorong tombol berdesakan, dan input memakai 12px (iOS auto-zoom saat fokus).
+  Di ≤640px: nama+status satu baris, target dan cuplikan prompt masing-masing satu baris penuh
+  (cuplikan di-clamp 2 baris), dropdown mode selebar kartu, input 16px, tombol ≥40px, dan tombol
+  Save memakai satu baris penuh.
+- **Patch disimpan sebagai skrip.** `dist/` adalah satu-satunya sumber UI di repo ini (tidak ada
+  `web/src`), jadi perubahan di atas diterapkan sebagai patch bundle + CSS: skrip idempoten
+  `/tmp/lr-mobile-ui-patch.py` (marker `lr-mobile-v1` / `lr-mp`), backup di `/tmp/lr-ui-backup-*`.
+  Jalankan ulang skrip itu kalau ada build UI baru yang menimpa `dist/`.
+
+## [Unreleased] — 2026-10-26 (prompt inject combo)
+
+### Prompt inject combo tidak lagi hilang saat model ditambah
+- **Akar masalah.** Editor combo di dashboard menyimpan dengan menghapus *semua* rule lalu
+  membuatnya ulang (`POST /v1/settings/fallbacks`) tanpa kolom prompt. Setting prompt combo
+  yang dulu hanya tersimpan di baris `fallback_rules` ikut terhapus — begitu satu model
+  ditambahkan, prompt, mode, display identity, dan switch-nya hilang, dan request ke combo itu
+  berangkat tanpa system message.
+- **Store durable per combo.** Tabel baru `combo_prompt_settings` (key: nama combo) menjadi
+  sumber kebenaran; kolom di `fallback_rules`/`combos` tetap ditulis sebagai mirror untuk
+  pembaca lama. Menghapus/membuat ulang rule tidak menyentuh setting lagi.
+- **Overlay di semua read path.** `GET /v1/prompt-inject` dan `resolveModel()` menimpa hasil
+  agregat kolom dengan baris store; baris store yang kosong berarti "belum pernah ditulis"
+  sehingga data legacy tetap dipakai.
+- **Rule baru mewarisi setting.** `POST /v1/settings/fallbacks` menyalin prompt/mode/identity/
+  flag dari combo yang sudah ada, jadi baris rule baru tetap deskriptif untuk pembaca kolom.
+- **Patch parsial aman.** `SaveComboSettings` menerima `base`: patch satu field (mis. toggle
+  `enabled`) tidak mengosongkan prompt, termasuk untuk combo yang prompt-nya masih hanya ada
+  di kolom rule.
+- **Backfill sekali jalan.** Saat `InitSchema`, setting dari baris rule lama disalin ke store
+  (no-op setelah store berisi), jadi prompt yang sudah ada tetap aktif setelah upgrade; clear
+  yang disengaja tidak pernah dihidupkan lagi.
+- **Trap agregat diperbaiki.** `MAX(inject_mode)` mengembalikan mode terbesar secara alfabet
+  (`append` + `prepend` → `prepend`); sekarang memakai `NULLIF` agar mode non-default menang.
+  Daftar prompt juga tidak lagi menjalankan query per entry di dalam loop `rows.Next()`
+  (risiko deadlock saat pool kecil) — setting di-preload sekali.
+
 ## [Unreleased] — 2026-10-23
 
 ### API Usage per API key
