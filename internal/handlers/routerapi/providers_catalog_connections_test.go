@@ -8,7 +8,10 @@ import (
 	"time"
 )
 
-// seedPoolMember inserts one provider row with credential material present.
+// seedPoolMember inserts one provider row with credential material present, plus the runtime
+// connection row the routing path actually reads (providerConnections). A provider config on
+// its own routes nothing, so catalog status is derived from the connection row: `enabled`
+// drives both providers.enabled and providerConnections.isActive.
 func seedPoolMember(t *testing.T, h *RouterAPIHandler, id, providerID, name string, enabled int, priority int) {
 	t.Helper()
 	_, err := h.db.Exec(`INSERT INTO providers
@@ -21,6 +24,13 @@ func seedPoolMember(t *testing.T, h *RouterAPIHandler, id, providerID, name stri
 		time.Now().UnixMilli(), priority, enabled, time.Now().UnixMilli())
 	if err != nil {
 		t.Fatalf("seed %s failed: %v", id, err)
+	}
+	if _, err := h.db.Exec(`INSERT INTO providerConnections
+		(id, provider, authType, name, priority, isActive, data, createdAt, updatedAt)
+		VALUES (?, ?, 'oauth', ?, ?, ?, ?, ?, ?)`,
+		id, providerID, name, priority, enabled,
+		`{"apiKey":"SECRET-API-KEY-`+id+`"}`, time.Now().UnixMilli(), time.Now().UnixMilli()); err != nil {
+		t.Fatalf("seed runtime connection for %s failed: %v", id, err)
 	}
 }
 

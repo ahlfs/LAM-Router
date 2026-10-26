@@ -992,9 +992,55 @@ func sanitizeConnections(conns []*ProviderConfig) []*ProviderConfig {
 	return out
 }
 
+// activeRuntimeConnections reports which upstreams the request path can actually use.
+//
+// Routing resolves upstreams from providerConnections WHERE isActive = 1; rows in the
+// `providers` table are only provider *config* (name, base URL, credential) and are never
+// used to pick an upstream. Counting config rows as "connected" made the dashboard claim a
+// provider was live while every request failed with "no active connections for provider".
+func (h *RouterAPIHandler) activeRuntimeConnections() (byProvider map[string]int, byID map[string]bool) {
+	byProvider = make(map[string]int)
+	byID = make(map[string]bool)
+	rows, err := h.db.Query(`SELECT id, LOWER(provider) FROM providerConnections WHERE isActive = 1`)
+	if err != nil {
+		return byProvider, byID
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, provider sql.NullString
+		if err := rows.Scan(&id, &provider); err != nil {
+			continue
+		}
+		if id.Valid && id.String != "" {
+			byID[id.String] = true
+		}
+		if provider.Valid && provider.String != "" {
+			byProvider[provider.String]++
+		}
+	}
+	return byProvider, byID
+}
+
+// countActiveConnections resolves how many runtime connections back one provider config.
+// Ids match across the two tables in practice; the provider-name lookup covers connections
+// created with ids that differ from their config row.
+func countActiveConnections(configs []*ProviderConfig, providerID string, byProvider map[string]int, byID map[string]bool) int {
+	if n := byProvider[strings.ToLower(providerID)]; n > 0 {
+		return n
+	}
+	n := 0
+	for _, c := range configs {
+		if byID[c.ID] {
+			n++
+		}
+	}
+	return n
+}
+
 // Build catalog with active connections
 func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 	savedConns, _ := h.getAllProviders()
+	activeByProvider, activeByID := h.activeRuntimeConnections()
 	connMap := make(map[string][]*ProviderConfig)
 	for _, c := range savedConns {
 		base := strings.ToLower(c.ProviderID)
@@ -1010,12 +1056,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 		knownIDs[sID] = true
 		cat.Custom = strings.HasPrefix(sID, "custom_")
 		conns := connMap[sID]
-		activeCount := 0
-		for _, c := range conns {
-			if c.Enabled {
-				activeCount++
-			}
-		}
+		activeCount := countActiveConnections(conns, seed.ID, activeByProvider, activeByID)
 		if activeCount > 0 {
 			cat.Status = map[string]any{
 				"state":          "connected",
@@ -1036,11 +1077,10 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 	for pID, conns := range connMap {
 		if !knownIDs[pID] && len(conns) > 0 {
 			first := conns[0]
-			activeCount := 0
-			for _, c := range conns {
-				if c.Enabled {
-					activeCount++
-				}
+			activeCount := countActiveConnections(conns, first.ProviderID, activeByProvider, activeByID)
+			state := "no_connections"
+			if activeCount > 0 {
+				state = "connected"
 			}
 			customDef := ProviderDefinition{
 				Custom:            true,
@@ -1052,7 +1092,7 @@ func (h *RouterAPIHandler) buildCatalog() []ProviderDefinition {
 				RequiresAPIKey:    true,
 				SupportsCustomURL: true,
 				Status: map[string]any{
-					"state":          "connected",
+					"state":          state,
 					"connectedCount": activeCount,
 				},
 				Models: []map[string]any{},
