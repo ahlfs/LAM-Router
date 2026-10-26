@@ -236,6 +236,49 @@
   .pv-meta { margin-top: 7px; font-size: 10.5px; color: var(--muted-foreground, #8a8f98); opacity: .8; }
   .pv-btn { padding: 5px 10px; font-size: 11px; font-weight: 600; }
   .pv-more { opacity: .65; font-style: italic; }
+  /* lr-mobile-v1 — phones: stack, unclamp, thumb-sized targets */
+  @media (max-width: 640px) {
+    .wrap { max-width: none; }
+    h1 { font-size: 20px; }
+    .sub { font-size: 12px; line-height: 1.55; }
+    .stack { margin-top: 14px; gap: 12px; }
+    .card { padding: 14px; border-radius: 12px; }
+    .card-head { gap: 8px; }
+    .card-head > div:first-child { min-width: 0; }
+    .card-hint { font-size: 11px; }
+
+    /* 16px keeps iOS Safari from zooming the page on focus */
+    textarea { font-size: 16px; min-height: 104px; }
+    input.field { font-size: 16px; min-width: 0; flex: 1 1 100%; height: 42px; }
+
+    /* action rows: full-width select, then counter + wrapping buttons */
+    .row { gap: 8px; }
+    .row .spacer { display: none; }
+    .row .counter { margin-right: auto; }
+    #globalModeSlot, [data-role="mode-slot"] { flex: 1 1 100%; min-width: 0; }
+    .dd { width: 100%; min-width: 0; }
+    .dd-btn { min-width: 0; width: 100%; max-width: none; height: 42px; font-size: 13px; }
+    .dd-pop { left: 0; right: 0; width: auto; max-width: none; }
+    .dd-item { padding: 10px 8px; }
+    button.btn, .file-label { min-height: 40px; padding: 9px 14px; font-size: 12.5px; }
+    .pv-btn { min-height: 40px; }
+    /* primary save owns a full-width row on a phone */
+    #globalSave, [data-role="save"] { flex: 1 1 100%; order: 9; min-height: 44px; }
+
+    /* combo rows: name + status on line one, routing target and preview below */
+    .combo-summary { flex-wrap: wrap; row-gap: 4px; padding: 11px 12px; }
+    .combo-name { min-width: 0; overflow-wrap: anywhere; }
+    .pill { order: 2; margin-left: auto; }
+    .chev { order: 3; margin-left: 6px; }
+    .combo-target { order: 4; flex: 1 1 100%; min-width: 0; overflow-wrap: anywhere; line-height: 1.45; }
+    .preview-text {
+      order: 5; flex: 1 1 100%; max-width: none; white-space: normal;
+      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+    }
+    .combo-body { padding: 12px; }
+    .combo-body textarea { min-height: 132px; }
+  }
+
 </style>
 </head>
 <body>

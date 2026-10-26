@@ -44,6 +44,97 @@
       <script type="module" crossorigin src="/assets/index-yz9zKHrD.js"></script>
       <link rel="stylesheet" crossorigin href="/assets/index-_kx-t5bc.css">
         <script id="lr-density-boot">/* lr-density v1 */try{var s=JSON.parse(localStorage.getItem("lamrouter_app_settings")||"{}");document.documentElement.setAttribute("data-density",s.uiDensity||"compact")}catch(e){document.documentElement.setAttribute("data-density","compact")}</script>
+<style id="lr-mobile-picker">
+        /* lr-mobile-v5 — the model picker must be an opaque, fixed-geometry sheet.
+           Resolving --card (#ffffff06) proved bg-card/95 painted ~2% white, so page
+           text showed through the list. And a content-sized list resized the popover
+           on every provider switch, moving the rows under the cursor: the content
+           area now has one fixed height at every provider/filter state. */
+        .lr-mp.lr-mp {
+            background-color: var(--popover, #0f1011);
+        }
+        .lr-mp-grid.lr-mp-grid {
+            height: 360px;
+            min-height: 0;
+            max-height: none;
+        }
+        .lr-mp-providers.lr-mp-providers,
+        .lr-mp-models.lr-mp-models {
+            height: 100%;
+            max-height: none;
+        }
+        @media (max-width: 640px) {
+            .lr-mp.lr-mp {
+                left: 0;
+                right: 0;
+                width: auto;
+                max-width: none;
+                max-height: max(240px, calc(100vh - 18rem));
+                max-height: max(240px, calc(100dvh - 18rem));
+                padding: 8px;
+                overflow: hidden;
+            }
+            .lr-mp-grid.lr-mp-grid {
+                display: flex;
+                flex-direction: column;
+                flex: 0 0 auto;
+                height: 300px;
+                min-height: 0;
+                max-height: none;
+                gap: 8px;
+                overflow: hidden;
+            }
+            .lr-mp-providers.lr-mp-providers {
+                display: flex;
+                flex: 0 0 auto;
+                flex-direction: row;
+                align-items: center;
+                gap: 6px;
+                height: auto;
+                max-height: none;
+                overflow-x: auto;
+                overflow-y: hidden;
+                padding: 0 0 8px;
+                border-right: 0;
+                border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+                scrollbar-width: none;
+            }
+            .lr-mp-providers.lr-mp-providers::-webkit-scrollbar { display: none; }
+            .lr-mp-providers.lr-mp-providers > * { margin-top: 0; flex: 0 0 auto; }
+            .lr-mp-providers.lr-mp-providers > :first-child { display: none; }
+            .lr-mp-providers.lr-mp-providers > button {
+                width: auto;
+                min-height: 38px;
+                padding: 6px 11px;
+                gap: 8px;
+                white-space: nowrap;
+            }
+            .lr-mp-models.lr-mp-models {
+                flex: 1 1 auto;
+                height: auto;
+                min-height: 0;
+                max-height: none;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+            }
+            .lr-mp-models.lr-mp-models > button { min-height: 44px; }
+            /* the settings popover is a child of the gear button's wrapper; making
+               that wrapper static lets the (already relative) composer place it */
+            .lr-pgs-wrap.lr-pgs-wrap { position: static; }
+            .lr-pgs.lr-pgs {
+                left: 8px;
+                right: 8px;
+                bottom: 100%;
+                width: auto;
+                max-width: none;
+                margin-bottom: 8px;
+                max-height: max(200px, calc(100vh - 17.5rem));
+                max-height: max(200px, calc(100dvh - 17.5rem));
+                overflow-y: auto;
+                overscroll-behavior: contain;
+            }
+        }
+    </style>
 </head>
     <body>
         <div id="root"></div>
