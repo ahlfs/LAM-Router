@@ -51,13 +51,16 @@ func (h *RouterAPIHandler) HandlePromptInjectGet(w http.ResponseWriter, r *http.
 	entries = append(entries, globalEntry)
 
 	// 2. Per-combo dari tabel combos (jika ada)
+	//
+	// The durable store is preloaded once: issuing a query per entry while these
+	// rows are open can starve an exhausted pool and deadlock.
+	stored := promptinject.LoadAllComboSettings(h.db)
 	comboRows, err := h.db.Query(`
 		SELECT id, name, COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend'),
 		       prompt_injection_enabled, COALESCE(display_identity,''), COALESCE(updatedAt,'')
 		FROM combos ORDER BY createdAt ASC
 	`)
 	if err == nil {
-		defer comboRows.Close()
 		for comboRows.Next() {
 			var e promptInjectEntry
 			var updatedAt string
@@ -71,16 +74,18 @@ func (h *RouterAPIHandler) HandlePromptInjectGet(w http.ResponseWriter, r *http.
 				if t, tErr := time.Parse(time.RFC3339, updatedAt); tErr == nil {
 					e.UpdatedAt = t.UnixMilli()
 				}
+				overlayStoredComboSettings(&e, stored)
 				entries = append(entries, e)
 			}
 		}
+		comboRows.Close()
 	}
 
 	// 3. Per-fallback-rule-group: satu entry per source_model unik
 	frRows, err := h.db.Query(`
 		SELECT source_model,
 		       COALESCE(MAX(system_prompt),''),
-		       COALESCE(MAX(inject_mode),'prepend'),
+		       COALESCE(MAX(NULLIF(NULLIF(inject_mode,''),'prepend')),'prepend'),
 		       COALESCE(GROUP_CONCAT(DISTINCT target_model),''),
 		       MAX(prompt_injection_enabled),
 		       COALESCE(MAX(display_identity),'')
@@ -89,7 +94,6 @@ func (h *RouterAPIHandler) HandlePromptInjectGet(w http.ResponseWriter, r *http.
 		ORDER BY MIN(created_at) ASC
 	`)
 	if err == nil {
-		defer frRows.Close()
 		for frRows.Next() {
 			var e promptInjectEntry
 			var enabled sql.NullInt64
@@ -100,9 +104,11 @@ func (h *RouterAPIHandler) HandlePromptInjectGet(w http.ResponseWriter, r *http.
 				e.InjectMode = normalizeStoredMode(e.InjectMode)
 				e.EnabledExplicit = enabled.Valid
 				e.Enabled = promptinject.ResolveEnabled(int64Ptr(enabled), e.SystemPrompt)
+				overlayStoredComboSettings(&e, stored)
 				entries = append(entries, e)
 			}
 		}
+		frRows.Close()
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{
@@ -200,23 +206,76 @@ func (h *RouterAPIHandler) saveGlobalPromptSettings(w http.ResponseWriter, patch
 func (h *RouterAPIHandler) saveComboPromptSettings(w http.ResponseWriter, comboID string, patch *promptinject.Patch) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	// Prefer the combos table (id-keyed); fall back to fallback_rules grouped by
-	// source_model, which is what the UI Combo tab creates.
-	if updated, err := applyPromptPatch(h.db, "combos", "id", comboID, patch, map[string]any{"updatedAt": now}); err == nil && updated {
-		h.respondComboEntry(w, comboID, "combos", "id", "name")
+	// Snapshot the settings that exist before the write: a patch that only names
+	// one field must never blank the others, and a combo whose prompt still lives
+	// solely in the legacy rule columns has to be carried into the store.
+	base := loadStoredOrLegacyComboSettings(h.db, comboID)
+
+	// Legacy mirrors: older readers still scan the rule/combo columns, so they
+	// are kept in sync with the durable store below.
+	comboUpdated, _ := applyPromptPatch(h.db, "combos", "id", comboID, patch, map[string]any{"updatedAt": now})
+	ruleUpdated, ruleErr := applyPromptPatch(h.db, "fallback_rules", "source_model", comboID, patch, nil)
+	if ruleErr != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save combo prompt: "+ruleErr.Error())
 		return
 	}
 
-	updated, frErr := applyPromptPatch(h.db, "fallback_rules", "source_model", comboID, patch, nil)
-	if frErr != nil {
-		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save combo prompt: "+frErr.Error())
-		return
-	}
-	if !updated {
+	if !comboUpdated && !ruleUpdated && base.IsEmpty() {
 		handlerutil.WriteJSONError(w, http.StatusNotFound, "combo/fallback not found: "+comboID)
 		return
 	}
-	h.respondComboEntry(w, comboID, "fallback_rules", "source_model", "")
+
+	settings, err := promptinject.SaveComboSettings(h.db, comboID, *patch, base)
+	if err != nil {
+		handlerutil.WriteJSONError(w, http.StatusInternalServerError, "failed to save combo prompt: "+err.Error())
+		return
+	}
+
+	entry := promptInjectEntry{
+		Scope:           "combo",
+		ComboID:         comboID,
+		ComboName:       comboID,
+		SystemPrompt:    settings.SystemPrompt,
+		InjectMode:      normalizeStoredMode(settings.InjectMode),
+		DisplayIdentity: settings.DisplayIdentity,
+		EnabledExplicit: settings.Enabled != nil,
+		Enabled:         settings.EffectiveEnabled(),
+		UpdatedAt:       settings.UpdatedAt,
+	}
+	if name := h.comboDisplayName(comboID); name != "" {
+		entry.ComboName = name
+	}
+
+	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"success": true, "entry": entry})
+}
+
+// comboDisplayName resolves the human name a combo is listed under, when the
+// build actually has a combos table.
+func (h *RouterAPIHandler) comboDisplayName(comboID string) string {
+	var name sql.NullString
+	_ = h.db.QueryRow("SELECT COALESCE(name,'') FROM combos WHERE id = ?", comboID).Scan(&name)
+	return name.String
+}
+
+// overlayStoredComboSettings applies the durable per-combo row over the legacy
+// rule/combo columns. An empty stored row means "never written" and leaves the
+// legacy values alone.
+func overlayStoredComboSettings(entry *promptInjectEntry, stored map[string]promptinject.ComboSettings) {
+	settings, ok := stored[strings.TrimSpace(entry.ComboID)]
+	if !ok {
+		settings, ok = stored[strings.TrimSpace(entry.ComboName)]
+	}
+	if !ok || settings.IsEmpty() {
+		return
+	}
+	entry.SystemPrompt = settings.SystemPrompt
+	entry.InjectMode = normalizeStoredMode(settings.InjectMode)
+	entry.DisplayIdentity = settings.DisplayIdentity
+	entry.EnabledExplicit = settings.Enabled != nil
+	entry.Enabled = settings.EffectiveEnabled()
+	if settings.UpdatedAt > 0 {
+		entry.UpdatedAt = settings.UpdatedAt
+	}
 }
 
 // applyPromptPatch writes only the fields present in patch. extra carries columns
@@ -257,31 +316,6 @@ func applyPromptPatch(db *sql.DB, table, keyColumn, keyValue string, patch *prom
 	}
 	n, _ := res.RowsAffected()
 	return n > 0, nil
-}
-
-// respondComboEntry reads the stored row back and returns the effective entry.
-func (h *RouterAPIHandler) respondComboEntry(w http.ResponseWriter, comboID, table, keyColumn, nameColumn string) {
-	entry := promptInjectEntry{Scope: "combo", ComboID: comboID, ComboName: comboID, InjectMode: "prepend"}
-	var enabled sql.NullInt64
-	var mode sql.NullString
-
-	query := "SELECT COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend'), prompt_injection_enabled, COALESCE(display_identity,'') FROM " +
-		table + " WHERE " + keyColumn + " = ?"
-	if nameColumn != "" {
-		query = "SELECT COALESCE(system_prompt,''), COALESCE(inject_mode,'prepend'), prompt_injection_enabled, COALESCE(display_identity,''), COALESCE(" + nameColumn + ",'') FROM " +
-			table + " WHERE " + keyColumn + " = ?"
-	}
-
-	if nameColumn != "" {
-		_ = h.db.QueryRow(query, comboID).Scan(&entry.SystemPrompt, &mode, &enabled, &entry.DisplayIdentity, &entry.ComboName)
-	} else {
-		_ = h.db.QueryRow(query, comboID).Scan(&entry.SystemPrompt, &mode, &enabled, &entry.DisplayIdentity)
-	}
-	entry.InjectMode = normalizeStoredMode(mode.String)
-	entry.EnabledExplicit = enabled.Valid
-	entry.Enabled = promptinject.ResolveEnabled(int64Ptr(enabled), entry.SystemPrompt)
-
-	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"success": true, "entry": entry})
 }
 
 // POST /v1/prompt-inject/preview

@@ -14,6 +14,7 @@ import (
 	"lamrouter/internal/handlers/shared"
 	"lamrouter/internal/middleware"
 	"lamrouter/internal/models"
+	"lamrouter/internal/promptinject"
 	"lamrouter/internal/providers"
 )
 
@@ -258,6 +259,10 @@ CREATE TABLE IF NOT EXISTS model_health (
 		if _, bfErr := db.NewRepo(dbConn).BackfillKeyModelUsage(); bfErr == nil {
 			// Seeded from request_logs on first upgrade; a no-op afterwards.
 		}
+		// Combo injection settings live outside fallback_rules because the
+		// dashboard rewrites a combo by deleting and re-inserting its rules.
+		_, _ = dbConn.Exec(promptinject.ComboSettingsSchema)
+		_ = promptinject.BackfillComboSettings(dbConn)
 		repairModelContextWindows(dbConn)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN isActive INTEGER DEFAULT 1`)
 		_, _ = dbConn.Exec(`ALTER TABLE apiKeys ADD COLUMN enabled INTEGER DEFAULT 1`)

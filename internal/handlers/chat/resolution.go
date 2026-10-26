@@ -192,6 +192,7 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	}
 
 	// 3. Check if it's a combo name (combos table or fallback_rules table)
+	rawDB := h.Repo.RawDB()
 	combo, err := h.Repo.GetComboByName(modelStr)
 	if err == nil && combo != nil && combo.Models != "" {
 		var modelStrings []string
@@ -213,6 +214,7 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 					firstInfo.InjectEnabled = promptinject.ResolveEnabled(combo.PromptInjectionEnabled, combo.SystemPrompt)
 					firstInfo.DisplayIdentity = combo.DisplayIdentity
 					firstInfo.ComboName = combo.Name
+					applyStoredComboPrompt(firstInfo, rawDB, combo.Name)
 					return firstInfo, nil
 				}
 			}
@@ -220,7 +222,6 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	}
 
 	// 3b. Check fallback_rules table (created via UI Combo tab)
-	rawDB := h.Repo.RawDB()
 	if rawDB != nil {
 		rows, err := rawDB.Query(`SELECT target_model FROM fallback_rules WHERE source_model = ? AND enabled = 1 ORDER BY priority ASC`, modelStr)
 		if err == nil {
@@ -244,7 +245,7 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 					var sp, im, dn sql.NullString
 					var enabled sql.NullInt64
 					_ = rawDB.QueryRow(
-						`SELECT COALESCE(MAX(system_prompt),''), COALESCE(MAX(inject_mode),'prepend'),
+						`SELECT COALESCE(MAX(system_prompt),''), COALESCE(MAX(NULLIF(NULLIF(inject_mode,''),'prepend')),'prepend'),
 						        MAX(prompt_injection_enabled), COALESCE(MAX(display_identity),'')
 						   FROM fallback_rules WHERE source_model = ?`,
 						modelStr,
@@ -261,6 +262,7 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 					}
 					firstInfo.InjectEnabled = promptinject.ResolveEnabled(stored, sp.String)
 					firstInfo.ComboName = modelStr
+					applyStoredComboPrompt(firstInfo, rawDB, modelStr)
 					return firstInfo, nil
 				}
 			}
@@ -276,6 +278,24 @@ func (h *ChatHandler) resolveModel(modelStr string) (*ModelInfo, error) {
 	}
 
 	return nil, fmt.Errorf("could not resolve model: %s", modelStr)
+}
+
+// applyStoredComboPrompt overlays the durable per-combo settings row onto the
+// resolved model. The dashboard rewrites a combo by deleting its rules and
+// re-inserting them, so the rule columns are a fallback, not the source of
+// truth: a prompt stored only there disappears the next time a model is added.
+func applyStoredComboPrompt(info *ModelInfo, db *sql.DB, comboName string) {
+	if info == nil || db == nil {
+		return
+	}
+	settings, ok := promptinject.LoadComboSettings(db, comboName)
+	if !ok || settings.IsEmpty() {
+		return
+	}
+	info.SystemPrompt = settings.SystemPrompt
+	info.InjectMode = string(promptinject.NormalizeMode(settings.InjectMode))
+	info.InjectEnabled = settings.EffectiveEnabled()
+	info.DisplayIdentity = settings.DisplayIdentity
 }
 
 // resolvePrefixProvider checks if a provider name is a providerNode prefix.

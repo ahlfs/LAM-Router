@@ -1,6 +1,7 @@
 package routerapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"lamrouter/internal/handlerutil"
+	"lamrouter/internal/promptinject"
 	"lamrouter/internal/updater"
 )
 
@@ -635,10 +637,17 @@ func (h *RouterAPIHandler) HandleFallbackCreate(w http.ResponseWriter, r *http.R
 		statusStr = &s
 	}
 
+	// A new model added to an existing combo must inherit that combo's injection
+	// settings, otherwise the extra rule arrives with a blank prompt and any
+	// reader that looks at rule columns alone sees the combo as unprotected.
+	inherit := loadStoredOrLegacyComboSettings(h.db, body.SourceModel)
+
 	_, err := h.db.Exec(`
-INSERT INTO fallback_rules (id, source_model, target_model, priority, enabled, trigger_on_status, max_retries, created_at)
-VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-`, id, body.SourceModel, body.TargetModel, priority, statusStr, body.MaxRetries, now)
+INSERT INTO fallback_rules (id, source_model, target_model, priority, enabled, trigger_on_status, max_retries, created_at,
+                            system_prompt, inject_mode, prompt_injection_enabled, display_identity)
+VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
+`, id, body.SourceModel, body.TargetModel, priority, statusStr, body.MaxRetries, now,
+		inherit.SystemPrompt, inherit.InjectMode, nullableFlag(inherit.Enabled), inherit.DisplayIdentity)
 
 	if err != nil {
 		handlerutil.WriteJSONError(w, http.StatusInternalServerError, err.Error())
@@ -699,4 +708,46 @@ func (h *RouterAPIHandler) HandleFallbackDelete(w http.ResponseWriter, r *http.R
 	}
 
 	handlerutil.WriteJSON(w, http.StatusOK, map[string]any{"message": "Fallback rule deleted"})
+}
+
+// loadStoredOrLegacyComboSettings resolves the injection settings already attached
+// to a combo, so writing one field cannot silently drop the others.
+//
+// The durable per-combo store wins; the rule columns are only a fallback for
+// databases that predate it.
+func loadStoredOrLegacyComboSettings(db *sql.DB, sourceModel string) promptinject.ComboSettings {
+	if settings, ok := promptinject.LoadComboSettings(db, sourceModel); ok {
+		return settings
+	}
+
+	out := promptinject.ComboSettings{ComboName: sourceModel, InjectMode: string(promptinject.ModePrepend)}
+	var prompt, mode, identity sql.NullString
+	var enabled sql.NullInt64
+	if err := db.QueryRow(`
+		SELECT COALESCE(MAX(NULLIF(system_prompt,'')),''),
+		       COALESCE(MAX(NULLIF(NULLIF(inject_mode,''),'prepend')),'prepend'),
+		       MAX(prompt_injection_enabled),
+		       COALESCE(MAX(NULLIF(display_identity,'')),'')
+		  FROM fallback_rules WHERE source_model = ?`, sourceModel).
+		Scan(&prompt, &mode, &enabled, &identity); err != nil {
+		return out
+	}
+
+	out.SystemPrompt = prompt.String
+	out.InjectMode = string(promptinject.NormalizeMode(mode.String))
+	out.DisplayIdentity = identity.String
+	if enabled.Valid {
+		value := enabled.Int64
+		out.Enabled = &value
+	}
+	return out
+}
+
+// nullableFlag turns the optional stored 0/1 into a SQL argument (NULL when the
+// combo never had an explicit switch).
+func nullableFlag(flag *int64) any {
+	if flag == nil {
+		return nil
+	}
+	return *flag
 }
